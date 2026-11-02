@@ -4,7 +4,7 @@ A single-household dashboard for school and kindergarten information: what matte
 
 Orbit is planned to bring relevant Aula messages, posts, and calendar events into a focused daily overview, reducing the need to read every source individually. It is a dashboard first, not a chatbot or an autonomous agent.
 
-> **Status: Phase 2 local organizer implemented.** Today, Upcoming, Review, source details, and local settings use persisted synthetic data. SQLite saves decisions across reloads and restarts; a local worker performs manual and scheduled refreshes. Aula, real AI, remote access, and external calendars remain disabled.
+> **Status: Phase 2 local organizer implemented; Phase 3 guarded login and account validation available.** Today, Upcoming, Review, source details, and local settings still use persisted synthetic data. User-controlled login and an explicitly authorized content-free account check have succeeded. Live synchronization, retention-backed live persistence, real AI, remote access, and external calendars are not enabled.
 
 ## Prototype experience
 
@@ -72,13 +72,94 @@ Scheduled refresh runs every 30 minutes while Orbit and the Mac are running, wit
 
 Initial live coverage is limited to core Aula messages, posts, and calendar events. Weekly-plan providers, document/image attachments, and content requiring additional access will remain visibly unprocessed.
 
-[Casperjuel/aula-mcp](https://github.com/Casperjuel/aula-mcp) is the preferred feasibility candidate, **not a verified or installed dependency**. It is an experimental community integration, not an established official integration contract.
+[Casperjuel/aula-mcp](https://github.com/Casperjuel/aula-mcp) is the preferred feasibility candidate, **not a live-validated integration**. It is an experimental community integration, not an established official integration contract.
+
+Phase 3 has started with approved local-only safeguards: FileVault-protected storage, data/token exclusion from backups, a maximum 90-day live-data retention period, and explicit deletion. Credential isolation, pre-login checks, and local session cleanup are implemented below. Live-record retention/deletion and worker disconnect integration are **not implemented yet**; no live imports are enabled.
+
+Inspection of pinned revision `d9a27d84933446783c89446ba3e9d799fd47ea2c` found that malformed responses can become empty successful results and individual-thread completion metadata is not exposed. The inspected Python MCP alternative also loses post-completion information. The approved local patch rejects ambiguous results, preserves thread continuation metadata, and normalizes Aula's verified `hasMorePosts` flag. Missing, invalid, and conflicting flags still fail explicitly. The companion supports protected login and account validation, but is not connected to the organizer worker. Existing startup still rejects live datasets.
 
 Before adoption, a pinned revision must be reviewed and validated for authorized login, account-specific coverage, pagination, read-marker behavior, session expiry, reconnect handling, and permitted use. The proposed integration uses a local MCP stdio companion, with its Bun runtime separate from the Next.js Node runtime.
 
 Orbit will allowlist required read tools and leave `AULA_MCP_WRITE` and `AULA_MCP_RAW` disabled. It must not mark messages read, change presence, download excluded attachments, or bypass access controls.
 
 See the [integration research and feasibility checklist](./plan.md#aula-integration-research-and-recommendation) for alternatives and detailed requirements.
+See [Phase 3 status](./plan.md#phase-3-read-only-aula-integration) for pinned source evidence, approved safeguards, and the next decision.
+
+### Offline companion preparation
+
+```sh
+pnpm aula:prepare
+pnpm --dir .orbit/aula-mcp install --frozen-lockfile --ignore-scripts
+pnpm aula:check
+pnpm aula:test
+```
+
+Preparation downloads public source into ignored `.orbit/aula-mcp`, checks out the reviewed commit, and applies [the recorded response/pagination patch](./patches/aula-mcp-read-contract.patch). The [upstream MIT license](./patches/aula-mcp-LICENSE) is retained. Re-running preparation is safe for the exact patched checkout; an unexpected revision, tracked change, or untracked file stops preparation without overwriting it.
+
+The companion uses its own pinned package manager/workspace dependencies, separate from Next.js. Bun 1.4.4 is a pinned local development dependency installed by `pnpm install --frozen-lockfile`; tests and login never download a runtime on demand. The test command checks companion types and affected-file lint, and exercises fictional HTTP responses through the client and in-memory MCP transport. It also tests encrypted persistence with fictional credentials in temporary directories, not your actual store. These commands do not start an MCP service, authenticate against Aula/MitID, or enable live ingestion.
+
+### Pre-login safeguards and local session
+
+Use the Orbit commands, **not the companion's raw login/logout/status commands**. Earlier direct CLI login instructions are superseded by this guarded workflow.
+
+```sh
+pnpm aula:preflight
+```
+
+Preflight creates an Orbit-owned, ignored `.orbit/aula-auth` directory with `0700` permissions and a `0600` ownership marker. It verifies private permissions, rejects links and additional ACL grants, requires fully enabled FileVault on the startup data volume, and checks Time Machine exclusion for both `.orbit` and the credential directory. It does not read/decrypt credentials, log in, or import data.
+
+If Time Machine exclusion is missing, run this from the repository root, then repeat preflight:
+
+```sh
+/usr/bin/tmutil addexclusion "$PWD/.orbit"
+pnpm aula:preflight
+```
+
+This excludes only Orbit's local data directory from future Time Machine backups; it does not change other backup settings or remove older backups. Check cloud-sync and other backup tools separately. On the development Mac, the approved exclusion was applied and preflight passed on 2 November 2026.
+
+After preflight passes, and **only after you have confirmed permitted use of this unofficial connector and excluded the directory from every other backup/sync tool**, you may initiate the private account-validation step in your own terminal:
+
+```sh
+pnpm aula:login --confirm-permitted-use --confirm-no-other-backups
+```
+
+Those flags are your explicit confirmations, not bypasses for the enforced checks. Login refuses pipes/captured output and extra options such as usernames, debug flags, or transcript paths. Enter your MitID username and complete the app/QR prompts locally; do not share the terminal output, screenshots, QR codes, or credentials in chat.
+
+- Tokens use the connector's AES-256-GCM file store under `.orbit/aula-auth`, with a `0600` local key and token file. No system Keychain entry or another installation's token store is used. Both files are sensitive; encryption with a colocated key does not protect against a compromised/unlocked user account.
+- The child process has a private umask and restricted environment, with environment-file loading disabled. Bun's runtime transpiler disk cache is disabled because its isolated home is the strict credential directory; cached code must not appear there. `DO_NOT_TRACK=1` also disables Bun's automatic crash-report uploads/telemetry. The child cannot inherit alternate credential locations/keys, cache overrides, write/raw flags, proxies, or runtime preload options from the parent environment.
+- Private-session mode disables persisted cookies, identity-bearing login logs, and debug transcripts; upstream error payloads are not printed on login failure. Cookie-based silent reauthentication is intentionally unavailable. The OAuth/MitID protocol is unchanged.
+- Only one Orbit session operation can run at a time. Cancellation stops the login child before cleanup; failed/cancelled login clears the isolated credential store, including any previous credentials there. Preflight failures do not silently delete existing credentials.
+- A successful login saves credentials only. It does **not** populate Orbit or establish complete/read-only account coverage.
+
+To clear the local session:
+
+```sh
+pnpm aula:disconnect
+```
+
+This deletes the owned token/key files and any leftover cookies, logs, or transcripts, without following symlinks or crossing mounted volumes. It leaves the organizer database/agenda and unrelated Aula installations untouched. Cleanup errors are reported as failures, not successful logout. It is local deletion, not remote token revocation, backup erasure, or forensic secure erase.
+
+Stop an active login with **Ctrl+C** before disconnecting. A force-killed process can leave `.orbit/.aula-session.lock`; Orbit refuses automatic stale-lock removal because its login child might still be running. Verify that both the owning process and its login child have stopped before manually removing that specific lock. Do not remove it merely to bypass a busy/error state.
+
+An earlier wrapper allowed Bun to create a runtime code cache inside the credential directory. That caused authentication to succeed but Orbit's post-login check to reject the session with "Unexpected session files or legacy cookies/logs exist." The cache is now disabled, not added to the credential allowlist. The failed guarded attempt runs local cleanup; rerun `pnpm aula:preflight` and then the guarded login command above. This fix was reproduced and verified with the actual Bun runtime and fictional files, without reading real credentials or repeating authentication.
+
+**Still pending:** full-window account coverage, unread read-marker behavior, expiry/reconnect validation, 90-day live-record retention/deletion, worker disconnect integration, and live UI/sync. An allowlisted account-validation command is available below; missing evidence remains an explicit failure.
+
+### Content-free account validation
+
+After guarded login, this command can check the connector without importing source records:
+
+```sh
+pnpm aula:validate --confirm-read-only-check
+```
+
+The confirmation authorizes reads of profiles, all bounded pages of posts/thread listings, this week's calendar, and up to three message threads (preferring already-read threads). It compares each sampled thread's read status afterward and stops the sample if that status changes or cannot be compared. A change could also come from concurrent Aula use; Orbit reports it as changed/inconclusive, never attempts a write to restore it, and does not declare validation successful.
+
+The local Node client talks to the pinned Bun companion over MCP stdio. Its allowlist permits only profile listing, post listing, thread listing/reading, and calendar reads with validated inputs. Write/raw, presence, discovery, attachment, and provider tools are denied before dispatch. Credentials stay in the protected store; the companion may renew its authentication tokens. Provider stderr and raw errors are not forwarded, and the final report contains only counts, fixed status/reason codes, and declared limitations.
+
+Checks stop at 50 pages per listing/thread, 15 seconds per request, or 120 seconds overall. Missing/duplicate/inconsistent pages, sensitive-message restrictions, malformed data, and limits remain explicit failures. Each process is closed and awaited before releasing the session lock. No family content, IDs, names, source hashes, or credential values are printed or saved in a report file.
+
+An authorized account sample has passed after fixing the native post-pagination field. **`sample-checks-passed` is not Phase 3 completion:** already-read samples do not establish unread behavior; a calendar-week sample does not establish a full 30-day import; source normalization, expiry/reconnect behavior, 90-day retention/deletion, and live worker/UI wiring remain outstanding. The report lists these limitations. The dashboard will remain synthetic until that implementation is complete; no additional MitID setup is needed merely to implement it.
 
 ## Trust and privacy
 

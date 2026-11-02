@@ -32,12 +32,12 @@ Read the relevant sections of [plan.md](./plan.md) before implementation. The pl
 
 Google/Apple calendar connections, exports, subscriptions, and external calendar writes are deferred. So are weekly-plan providers, attachments/OCR, notifications, chores, and multi-household support unless separately requested.
 
-## Current phase: persistent synthetic organizer
+## Current phase: Aula feasibility; runtime remains synthetic
 
-Phases 1 and 2 are implemented and verified. Await local-organizer feedback; do not begin Phase 3 without a separate request and approved live-data safeguards.
+Phases 1 and 2 are implemented and verified. Phase 3 is authorized; see [the Phase 3 status and safeguards](./plan.md#phase-3-read-only-aula-integration). The user completed guarded login and authorized a content-free account check, whose sample passed. Do not initiate interactive authentication through agent tools or enable live datasets. Real source content must remain local; no persistent live import is implemented.
 
 - Use Next.js App Router, TypeScript, pnpm, and Tailwind CSS. Build custom, minimal Material-inspired components, not the Material UI library.
-- Use only fictional data through the synthetic adapter and persistent domain workflows. No Aula connector, real AI, browser storage, or external calendar is enabled.
+- Use only fictional data through the synthetic adapter and persistent domain workflows. The Aula companion supports offline tests and guarded user-driven login, but is not connected to the worker. Real AI, browser storage, and external calendars remain disabled.
 - Use a fixed, visibly labeled demo date. The upcoming view covers 30 days relative to that date.
 - Preserve approvals, edits, and dismissals across reloads and restarts. Only explicit synthetic reset clears them; child filters remain UI state during navigation.
 - Scenario changes enqueue real synthetic worker jobs. Do not hide saved data for empty or failed responses, or present simulated failures as live connection activity.
@@ -57,6 +57,9 @@ Phases 1 and 2 are implemented and verified. Await local-organizer feedback; do 
 - Revision approval replaces the linked entry rather than appending another; retain all previously edited fields unless explicitly changed. Unresolved dates require separate confirmation and must not be approved automatically.
 - Build before browser tests: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, then `pnpm test:e2e`. Browser tests run serially against isolated `.orbit/e2e.sqlite` storage on port 3100; restart tests also use temporary databases/ephemeral ports. Never point tests at the user's database.
 - Use Node.js 24 and the pinned pnpm version. `pnpm dev` and `pnpm start` bind to loopback with telemetry disabled. See [README.md](./README.md#verification) for verification scope and limitations.
+- `pnpm aula:prepare` prepares the pinned companion plus the recorded patch; `pnpm aula:check` verifies its revision and exact diff. Never reset an unexpectedly modified checkout. `pnpm aula:test` runs fictional client/MCP/private-store tests, type-check, and affected-file lint with the locally installed pinned Bun; it does not authenticate. Keep `.orbit` out of Orbit's TypeScript/lint scans so the companion retains its own runtime and workspace dependencies.
+- `src/server/aula/session.ts` owns protected storage, host checks, environment isolation, locking, and cleanup. `src/worker/aula-session.ts` provides preflight, guarded interactive login, and disconnect. Only these commands may manage Orbit's real credentials; do not use the raw upstream CLI, default Keychain, or shared config directory.
+- `pnpm aula:validate --confirm-read-only-check` uses `src/server/aula/read-client.ts` and `validate.ts` for an explicitly authorized, content-free account check. Keep its five-tool allowlist, input validation, strict pagination, bounded requests, sanitized reports, and protected session lock. Never forward provider stderr, raw errors, names, IDs, or source content to chat/logs. Sample success does not enable live imports or establish full coverage/unread behavior.
 
 ## Product and accessibility
 
@@ -80,7 +83,13 @@ Phases 1 and 2 are implemented and verified. Await local-organizer feedback; do 
 
 ## Aula, AI, and family-data safeguards
 
-- Use fictional data until the live-data gate is explicitly cleared. Never request MitID credentials or tokens in chat or commit them to the repository.
+- Policy approval alone does not enable live ingestion. Enforce and verify the approved safeguards and pass connector feasibility first; until then use fictional data. Never request MitID credentials or tokens in chat or commit them to the repository.
+- Phase 3's approved policy requires FileVault-protected local storage, exclusion of live data/tokens from backups, and at most 90-day live-record retention including related agenda/review records. Pre-login storage/host checks and local credential cleanup are implemented. Live-record retention/deletion and worker disconnect integration are not yet implemented; do not imply otherwise.
+- Keep credentials in the isolated `.orbit/aula-auth` encrypted-file store with private permissions; reject symlinks, hard links, unexpected files, and additional ACL access before login. Require FileVault/startup-volume checks and Time Machine exclusions, plus terminal confirmations for permitted use and other backup/sync exclusions. Never weaken a failed preflight.
+- Private-session mode disables cookie persistence, identifying login logs, debug transcripts, and raw error payloads. Do not inherit secret/runtime/write overrides into the login child. Authentication protocol changes remain out of scope.
+- The login child's isolated `HOME` is the credential directory: force `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0` and `DO_NOT_TRACK=1`. Do not allow runtime cache directories as credential files. Test this boundary using the pinned Bun process, not only Node or in-process mocks.
+- All session operations use the exclusive session lock. Stop/wait for the login child before failure cleanup; never automatically remove an interrupted-operation lock or claim server-side revocation. Delete only marked Orbit session storage, preserving the organizer database and unrelated stores.
+- Preserve raw completeness/error evidence through the companion boundary. The patch normalizes the verified native post flag `hasMorePosts` to `moreMessagesExist`, rejects missing/invalid/conflicting flags, and retains individual-thread pagination. Do not use optimistic defaults or short-page assumptions. Reuse the app-side read allowlist for future live imports; companion read-only gates alone do not deny attachment/provider tools.
 - Treat the recommended Aula MCP connector as an unofficial candidate, not a verified dependency. Pin and inspect it, then validate account-specific coverage, pagination, read-marker behavior, expiry, and reconnection before relying on it.
 - Keep Aula access in a server-side worker through an explicit read-tool allowlist. Leave `AULA_MCP_WRITE` and `AULA_MCP_RAW` disabled. Do not mark messages read, change presence, download excluded attachments, or bypass access controls.
 - Keep tokens in the connector's protected store. Do not expose family content in logs, analytics, error telemetry, screenshots, test fixtures, or other shared artifacts.

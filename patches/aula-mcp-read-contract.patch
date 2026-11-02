@@ -1,0 +1,835 @@
+diff --git a/apps/cli/src/commands/login.ts b/apps/cli/src/commands/login.ts
+index 8e3aa2e..c2a5e1e 100644
+--- a/apps/cli/src/commands/login.ts
++++ b/apps/cli/src/commands/login.ts
+@@ -37,6 +37,10 @@ export interface LoginCommandArgs {
+ }
+ 
+ export async function runLogin(args: LoginCommandArgs): Promise<void> {
++  const privateSession = process.env.AULA_MCP_PRIVATE_SESSION === '1';
++  if (privateSession && (args.debug || args.transcript)) {
++    throw new Error('Debug logging and transcripts are disabled for private sessions.');
++  }
+   const username = args.username ?? (await prompt('MitID username:'));
+   if (!username) {
+     fail('Username is required.');
+@@ -126,26 +130,28 @@ export async function runLogin(args: LoginCommandArgs): Promise<void> {
+     // Persist the cookie jar so `aula refresh-stepup` can attempt silent
+     // SSO against the broker (unilogin) without dragging the user through
+     // MitID every time the assurance level drops.
+-    try {
+-      await mkdir(aulaMcpDir(), { recursive: true });
+-      const serialized = await http.jar.serialize();
+-      await writeFile(cookiesFile(), serialized, { mode: 0o600 });
+-      // When AULA_MCP_DIR is owned by a service account (e.g. openclaw
+-      // on the gateway VM) but `aula login` is being run as root, a
+-      // freshly-created cookies.json lands root-owned and the
+-      // service-account-run refresh-stepup timer can't read it. Match
+-      // the directory's ownership.
++    if (!privateSession) {
+       try {
+-        const dirStat = await stat(aulaMcpDir());
+-        if (dirStat.uid !== process.getuid?.()) {
+-          await chown(cookiesFile(), dirStat.uid, dirStat.gid);
++        await mkdir(aulaMcpDir(), { recursive: true });
++        const serialized = await http.jar.serialize();
++        await writeFile(cookiesFile(), serialized, { mode: 0o600 });
++        // When AULA_MCP_DIR is owned by a service account (e.g. openclaw
++        // on the gateway VM) but `aula login` is being run as root, a
++        // freshly-created cookies.json lands root-owned and the
++        // service-account-run refresh-stepup timer can't read it. Match
++        // the directory's ownership.
++        try {
++          const dirStat = await stat(aulaMcpDir());
++          if (dirStat.uid !== process.getuid?.()) {
++            await chown(cookiesFile(), dirStat.uid, dirStat.gid);
++          }
++        } catch {
++          // chown is best-effort — non-root can't, and that's fine when
++          // the running user already owns the dir.
+         }
+-      } catch {
+-        // chown is best-effort — non-root can't, and that's fine when
+-        // the running user already owns the dir.
++      } catch (e) {
++        warn(`Could not persist cookies: ${(e as Error).message}`);
+       }
+-    } catch (e) {
+-      warn(`Could not persist cookies: ${(e as Error).message}`);
+     }
+ 
+     ok(`Login successful. Tokens saved to ${fmt.dim(defaultStore().path)}`);
+@@ -163,7 +169,11 @@ export async function runLogin(args: LoginCommandArgs): Promise<void> {
+     });
+   } catch (err) {
+     const error = err as Error;
+-    fail(`Login failed: ${error.message}`);
++    fail(
++      privateSession
++        ? 'Login failed. No diagnostic transcript was saved.'
++        : `Login failed: ${error.message}`,
++    );
+     await appendLoginLog({
+       ts: new Date().toISOString(),
+       username,
+@@ -180,7 +190,7 @@ export async function runLogin(args: LoginCommandArgs): Promise<void> {
+       info(`${fmt.bold('Hint:')} this is MitID's "parallel sessions" detector.`);
+       info('  Close any open Aula browser tabs, dismiss any pending MitID-app prompts,');
+       info('  and wait ~60 seconds before retrying.');
+-      info(`History: ${fmt.dim('aula log --last 5')}`);
++      if (!privateSession) info(`History: ${fmt.dim('aula log --last 5')}`);
+       process.exit(1);
+     }
+ 
+@@ -192,10 +202,10 @@ export async function runLogin(args: LoginCommandArgs): Promise<void> {
+       }
+     } else if (transcriptFile) {
+       warn(`Full transcript written to ${transcriptFile}`);
+-    } else {
++    } else if (!privateSession) {
+       warn('Re-run with --debug to capture a sanitised wire transcript.');
+     }
+-    info(`History: ${fmt.dim('aula log --last 5')}`);
++    if (!privateSession) info(`History: ${fmt.dim('aula log --last 5')}`);
+     process.exit(1);
+   }
+ }
+diff --git a/apps/cli/src/commands/tokens.test.ts b/apps/cli/src/commands/tokens.test.ts
+index c7be6c4..74555d4 100644
+--- a/apps/cli/src/commands/tokens.test.ts
++++ b/apps/cli/src/commands/tokens.test.ts
+@@ -9,11 +9,16 @@
+  * the file backend on every platform.
+  */
+ 
+-import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+-import { mkdtemp, readFile, rm } from 'node:fs/promises';
++import { afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
++import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+-import { EncryptedFileTokenStore, type StoredTokenRecord } from '@aula-mcp/aula-auth';
++import {
++  AulaLoginClient,
++  EncryptedFileTokenStore,
++  type StoredTokenRecord,
++} from '@aula-mcp/aula-auth';
++import { runLogin } from './login.ts';
+ 
+ let runTokensExport: typeof import('./tokens.ts')['runTokensExport'];
+ let runTokensImport: typeof import('./tokens.ts')['runTokensImport'];
+@@ -101,3 +106,75 @@ describe('tokens export → import round-trip', () => {
+     expect(bundleKey).not.toBe(localKey);
+   });
+ });
++
++describe('Orbit private login storage', () => {
++  async function withPrivateLogin(run: (output: () => string) => Promise<void>, failure = false) {
++    const previousPrivate = process.env.AULA_MCP_PRIVATE_SESSION;
++    const previousKey = process.env.AULA_MCP_KEY;
++    process.env.AULA_MCP_PRIVATE_SESSION = '1';
++    delete process.env.AULA_MCP_KEY;
++    const login = spyOn(AulaLoginClient.prototype, 'login');
++    if (failure) login.mockRejectedValue(new Error('FICTIONAL_SECRET_ERROR_PAYLOAD'));
++    else login.mockResolvedValue(FAKE_RECORD.tokens);
++    let output = '';
++    const stdout = spyOn(process.stdout, 'write').mockImplementation((chunk) => {
++      output += String(chunk);
++      return true;
++    });
++    try {
++      await run(() => output);
++    } finally {
++      login.mockRestore();
++      stdout.mockRestore();
++      if (previousPrivate === undefined) delete process.env.AULA_MCP_PRIVATE_SESSION;
++      else process.env.AULA_MCP_PRIVATE_SESSION = previousPrivate;
++      if (previousKey === undefined) delete process.env.AULA_MCP_KEY;
++      else process.env.AULA_MCP_KEY = previousKey;
++    }
++  }
++
++  test('saves encrypted private files without cookies or identity-bearing login logs', async () => {
++    await withPrivateLogin(async () => {
++      await runLogin({ username: 'FICTIONAL_GUARDIAN' });
++      const directory = join(workDir, 'local');
++      expect((await readdir(directory)).sort()).toEqual(['.key', 'tokens.json']);
++      for (const name of ['.key', 'tokens.json']) {
++        expect((await stat(join(directory, name))).mode & 0o777).toBe(0o600);
++      }
++      const ciphertext = await readFile(join(directory, 'tokens.json'), 'utf8');
++      expect(ciphertext).not.toContain('FICTIONAL_GUARDIAN');
++      expect(ciphertext).not.toContain('AT-1');
++      const store = new EncryptedFileTokenStore({
++        filePath: join(directory, 'tokens.json'),
++        keyFilePath: join(directory, '.key'),
++      });
++      expect((await store.load())?.tokens).toEqual(FAKE_RECORD.tokens);
++    });
++  });
++
++  test('refuses debug and transcript options before authentication', async () => {
++    await withPrivateLogin(async () => {
++      await expect(runLogin({ username: 'FICTIONAL', debug: true })).rejects.toThrow('disabled');
++      await expect(runLogin({ username: 'FICTIONAL', transcript: '/not-written' })).rejects.toThrow(
++        'disabled',
++      );
++      expect(await readdir(workDir)).toEqual([]);
++    });
++  });
++
++  test('does not log upstream error payloads or suggest enabling debug on failure', async () => {
++    await withPrivateLogin(async (output) => {
++      const exit = spyOn(process, 'exit').mockImplementation(() => {
++        throw new Error('fictional exit');
++      });
++      try {
++        await expect(runLogin({ username: 'FICTIONAL' })).rejects.toThrow('fictional exit');
++        expect(output()).not.toContain('FICTIONAL_SECRET_ERROR_PAYLOAD');
++        expect(output()).not.toContain('--debug');
++        expect(await readdir(workDir)).toEqual([]);
++      } finally {
++        exit.mockRestore();
++      }
++    }, true);
++  });
++});
+diff --git a/apps/cli/src/login-log.ts b/apps/cli/src/login-log.ts
+index 2199219..5374273 100644
+--- a/apps/cli/src/login-log.ts
++++ b/apps/cli/src/login-log.ts
+@@ -25,6 +25,7 @@ export interface LoginLogEntry {
+ }
+ 
+ export async function appendLoginLog(entry: LoginLogEntry): Promise<void> {
++  if (process.env.AULA_MCP_PRIVATE_SESSION === '1') return;
+   const path = loginLogPath();
+   await mkdir(dirname(path), { recursive: true });
+   await appendFile(path, `${JSON.stringify(entry)}\n`, 'utf8');
+diff --git a/packages/aula-auth/src/token-store.ts b/packages/aula-auth/src/token-store.ts
+index bf01e5e..15b8f67 100644
+--- a/packages/aula-auth/src/token-store.ts
++++ b/packages/aula-auth/src/token-store.ts
+@@ -191,10 +191,16 @@ export class EncryptedFileTokenStore implements TokenStore {
+       tag: tag.toString('base64'),
+     };
+     await mkdir(dirname(this.filePath), { recursive: true });
+-    await writeFile(this.filePath, JSON.stringify(envelope, null, 2), 'utf8');
++    await writeFile(this.filePath, JSON.stringify(envelope, null, 2), {
++      encoding: 'utf8',
++      mode: 0o600,
++    });
+     try {
+       await chmod(this.filePath, 0o600);
+     } catch {
++      if (process.env.AULA_MCP_PRIVATE_SESSION === '1') {
++        throw new TokenStoreError('Private token-file permissions could not be enforced.');
++      }
+       // chmod may fail on some filesystems (NTFS share, etc.) — non-fatal.
+     }
+   }
+@@ -240,10 +246,13 @@ export class EncryptedFileTokenStore implements TokenStore {
+       if (isEnoent(e)) {
+         const fresh = randomBytes(32);
+         await mkdir(dirname(this.keyFilePath), { recursive: true });
+-        await writeFile(this.keyFilePath, fresh.toString('hex'), 'utf8');
++        await writeFile(this.keyFilePath, fresh.toString('hex'), { encoding: 'utf8', mode: 0o600 });
+         try {
+           await chmod(this.keyFilePath, 0o600);
+         } catch {
++          if (process.env.AULA_MCP_PRIVATE_SESSION === '1') {
++            throw new TokenStoreError('Private key-file permissions could not be enforced.');
++          }
+           // best-effort
+         }
+         this.logger.warn('token-store.key.generated', {
+diff --git a/packages/aula-client/src/aula-client.test.ts b/packages/aula-client/src/aula-client.test.ts
+index ecf301a..56f7331 100644
+--- a/packages/aula-client/src/aula-client.test.ts
++++ b/packages/aula-client/src/aula-client.test.ts
+@@ -329,6 +329,7 @@ describe('AulaClient.getMessagesForThread step-up', () => {
+         body: envelope({
+           subject: 'Skoleudflugt',
+           messages: [{ text: { plain: 'hej' }, sender: { fullName: 'Anders' } }],
++          moreMessagesExist: false,
+         }),
+       },
+     );
+@@ -357,17 +358,14 @@ describe('AulaClient.getThreadsPage', () => {
+     expect(out.hasMorePages).toBe(true);
+   });
+ 
+-  test('treats a missing moreMessagesExist as the last page', async () => {
++  test('rejects a missing moreMessagesExist rather than claiming the last page', async () => {
+     const http = new FakeHttp();
+     http.enqueue(
+       { status: 200, body: envelope({ profiles: [] }) },
+       { status: 200, body: envelope({ threads: [] }) },
+     );
+     const c = makeClient(http);
+-    const out = await c.getThreadsPage({ page: 4 });
+-    expect(out.hasMorePages).toBe(false);
+-    // Aula echoes the page back; fall back to what we asked for when it does not.
+-    expect(out.page).toBe(4);
++    await expect(c.getThreadsPage({ page: 4 })).rejects.toBeInstanceOf(AulaApiError);
+   });
+ 
+   test('getThreads still returns a bare array', async () => {
+@@ -578,8 +576,8 @@ describe('AulaClient.getPosts', () => {
+   test('isUnread defaults to false and follows onlyUnread when set', async () => {
+     const http = new FakeHttp();
+     http.enqueue({ status: 200, body: envelope({ profiles: [] }) });
+-    http.enqueue({ status: 200, body: envelope({ posts: [] }) });
+-    http.enqueue({ status: 200, body: envelope({ posts: [] }) });
++    http.enqueue({ status: 200, body: envelope({ posts: [], moreMessagesExist: false }) });
++    http.enqueue({ status: 200, body: envelope({ posts: [], moreMessagesExist: false }) });
+     const c = makeClient(http);
+ 
+     await c.getPosts({ institutionProfileIds: [1] });
+@@ -589,3 +587,185 @@ describe('AulaClient.getPosts', () => {
+     expect(http.requested.at(-1)?.url).toContain('isUnread=true');
+   });
+ });
++
++describe('Orbit read contract', () => {
++  const readers = [
++    { name: 'threads', read: (client: AulaClient) => client.getThreadsPage() },
++    { name: 'messages', read: (client: AulaClient) => client.getMessagesForThread(123) },
++    {
++      name: 'posts',
++      read: (client: AulaClient) => client.getPosts({ institutionProfileIds: [1] }),
++    },
++    {
++      name: 'calendar',
++      read: (client: AulaClient) =>
++        client.getCalendarEvents({ profileIds: [1], start: 'a', end: 'b' }),
++    },
++  ];
++
++  function fixture(name: string, response: { status: number; body: string }) {
++    const http = new FakeHttp();
++    http.enqueue({ status: 200, body: envelope({ profiles: [] }) });
++    if (name === 'calendar') http.enqueue({ status: 200, body: envelope({}) });
++    http.enqueue(response);
++    return { client: makeClient(http), http };
++  }
++
++  for (const reader of readers) {
++    for (const body of [
++      'not JSON',
++      'null',
++      '[]',
++      '{}',
++      JSON.stringify({ data: [] }),
++      JSON.stringify({ status: { code: '0' }, data: [] }),
++      JSON.stringify({ status: { code: 0 } }),
++      envelope(null),
++      envelope({}),
++      envelope('invalid'),
++    ]) {
++      test(`${reader.name} rejects malformed response ${body}`, async () => {
++        const { client } = fixture(reader.name, { status: 200, body });
++        await expect(reader.read(client)).rejects.toBeInstanceOf(AulaApiError);
++      });
++    }
++
++    for (const status of [401, 403, 429, 500]) {
++      test(`${reader.name} surfaces HTTP ${status}`, async () => {
++        const { client } = fixture(reader.name, { status, body: '{}' });
++        await expect(reader.read(client)).rejects.toBeInstanceOf(AulaApiError);
++      });
++    }
++
++    test(`${reader.name} permits an explicit successful empty result`, async () => {
++      const data =
++        reader.name === 'calendar' ? [] : { [reader.name]: [], moreMessagesExist: false };
++      const { client } = fixture(reader.name, { status: 200, body: envelope(data) });
++      await reader.read(client);
++    });
++
++    if (reader.name !== 'calendar') {
++      for (const data of [
++        { [reader.name]: [] },
++        { [reader.name]: [], moreMessagesExist: 'false' },
++        { [reader.name]: [], moreMessagesExist: true },
++        { [reader.name]: [null], moreMessagesExist: false },
++        { [reader.name]: [], moreMessagesExist: false, page: -1 },
++      ]) {
++        test(`${reader.name} rejects unknown or inconsistent pagination ${JSON.stringify(data)}`, async () => {
++          const { client } = fixture(reader.name, { status: 200, body: envelope(data) });
++          await expect(reader.read(client)).rejects.toBeInstanceOf(AulaApiError);
++        });
++      }
++    }
++  }
++
++  test('preserves continuation across more than 20 threads without marking messages read', async () => {
++    const first = Array.from({ length: 20 }, (_, id) => ({ id: id + 1 }));
++    const { client, http } = fixture('threads', {
++      status: 200,
++      body: envelope({ threads: first, page: 0, moreMessagesExist: true }),
++    });
++    http.enqueue({
++      status: 200,
++      body: envelope({ threads: [{ id: 21 }], page: 1, moreMessagesExist: false }),
++    });
++    const page0 = await client.getThreadsPage({ page: 0, pageSize: 100 });
++    const page1 = await client.getThreadsPage({ page: 1, pageSize: 100 });
++    expect(page0.hasMorePages).toBe(true);
++    expect(page1.hasMorePages).toBe(false);
++    expect([...page0.threads, ...page1.threads].map((thread) => thread.id)).toEqual(
++      Array.from({ length: 21 }, (_, id) => id + 1),
++    );
++    expect(
++      http.requested.map((request) => new URL(request.url).searchParams.get('method')),
++    ).toEqual(['profiles.getProfilesByLogin', 'messaging.getThreads', 'messaging.getThreads']);
++    expect(http.requested.every((request) => request.method === 'GET')).toBe(true);
++  });
++
++  test('retains individual-thread page and completion metadata', async () => {
++    const { client, http } = fixture('messages', {
++      status: 200,
++      body: envelope({
++        subject: 'Fictional thread',
++        messages: [{ id: 1 }],
++        page: 0,
++        moreMessagesExist: true,
++      }),
++    });
++    http.enqueue({
++      status: 200,
++      body: envelope({
++        subject: 'Fictional thread',
++        messages: [{ id: 2 }],
++        page: 1,
++        moreMessagesExist: false,
++      }),
++    });
++    expect(await client.getMessagesForThread(123, { page: 0 })).toMatchObject({
++      page: 0,
++      moreMessagesExist: true,
++    });
++    expect(await client.getMessagesForThread(123, { page: 1 })).toMatchObject({
++      page: 1,
++      moreMessagesExist: false,
++    });
++    expect(http.requested.every((request) => request.method === 'GET')).toBe(true);
++  });
++
++  test('rejects a repeated thread page rather than allowing a pagination loop', async () => {
++    const { client } = fixture('messages', {
++      status: 200,
++      body: envelope({ messages: [{ id: 1 }], page: 0, moreMessagesExist: true }),
++    });
++    await expect(client.getMessagesForThread(123, { page: 1 })).rejects.toBeInstanceOf(
++      AulaApiError,
++    );
++  });
++
++  test('normalizes the verified native hasMorePosts flag across pages', async () => {
++    const { client, http } = fixture('posts', {
++      status: 200,
++      body: envelope({ posts: [{ id: 1 }], hasMorePosts: true }),
++    });
++    http.enqueue({ status: 200, body: envelope({ posts: [{ id: 2 }], hasMorePosts: false }) });
++    expect(
++      await client.getPosts({ institutionProfileIds: [1], limit: 50, index: 0 }),
++    ).toMatchObject({ moreMessagesExist: true });
++    expect(
++      await client.getPosts({ institutionProfileIds: [1], limit: 50, index: 1 }),
++    ).toMatchObject({ moreMessagesExist: false });
++  });
++
++  test('rejects invalid or conflicting native post continuation flags', async () => {
++    for (const metadata of [
++      { hasMorePosts: 'false' },
++      { hasMorePosts: null },
++      { hasMorePosts: true, moreMessagesExist: false },
++      { hasMorePosts: false, moreMessagesExist: true },
++    ]) {
++      const { client } = fixture('posts', {
++        status: 200,
++        body: envelope({ posts: [{ id: 1 }], ...metadata }),
++      });
++      await expect(client.getPosts({ institutionProfileIds: [1] })).rejects.toBeInstanceOf(
++        AulaApiError,
++      );
++    }
++  });
++
++  test('retains post completion metadata even when a non-final page is short', async () => {
++    const { client, http } = fixture('posts', {
++      status: 200,
++      body: envelope({ posts: [{ id: 1 }], moreMessagesExist: true }),
++    });
++    http.enqueue({ status: 200, body: envelope({ posts: [{ id: 2 }], moreMessagesExist: false }) });
++    expect(
++      await client.getPosts({ institutionProfileIds: [1], limit: 50, index: 0 }),
++    ).toMatchObject({ moreMessagesExist: true });
++    expect(
++      await client.getPosts({ institutionProfileIds: [1], limit: 50, index: 1 }),
++    ).toMatchObject({ moreMessagesExist: false });
++    expect(new URL(http.requested.at(-1)?.url ?? '').searchParams.get('index')).toBe('1');
++  });
++});
+diff --git a/packages/aula-client/src/aula-client.ts b/packages/aula-client/src/aula-client.ts
+index 4364f65..7421e52 100644
+--- a/packages/aula-client/src/aula-client.ts
++++ b/packages/aula-client/src/aula-client.ts
+@@ -35,7 +35,6 @@ import type {
+   PresenceTemplatesData,
+   ProfileContextData,
+   ProfilesByLoginData,
+-  ThreadMessage,
+   ThreadMessagesData,
+   ThreadsData,
+   ThreadsPage,
+@@ -246,12 +245,14 @@ export class AulaClient {
+       start: args.start,
+       end: args.end,
+     });
+-    return (
+-      (await this.postJson<CalendarEvent[]>(
+-        'calendar.getEventsByProfileIdsAndResourceIds',
+-        body,
+-      )) ?? []
++    const data = await this.postJson<CalendarEvent[]>(
++      'calendar.getEventsByProfileIdsAndResourceIds',
++      body,
+     );
++    if (!Array.isArray(data) || !data.every(isRecord)) {
++      throw new AulaApiError('Invalid calendar response', 200, '');
++    }
++    return data;
+   }
+ 
+   /**
+@@ -270,10 +271,11 @@ export class AulaClient {
+     };
+     if (opts.pageSize) params.pageSize = String(opts.pageSize);
+     const data = await this.getJson<ThreadsData>('messaging.getThreads', params);
++    validatePage(data, 'threads', opts.page ?? 0);
+     return {
+-      threads: data?.threads ?? [],
+-      page: data?.page ?? opts.page ?? 0,
+-      hasMorePages: data?.moreMessagesExist ?? false,
++      threads: data.threads,
++      page: data.page ?? opts.page ?? 0,
++      hasMorePages: data.moreMessagesExist,
+     };
+   }
+ 
+@@ -290,7 +292,7 @@ export class AulaClient {
+   async getMessagesForThread(
+     threadId: number,
+     opts: { page?: number } = {},
+-  ): Promise<{ subject?: string; messages: ThreadMessage[] }> {
++  ): Promise<ThreadMessagesData> {
+     // Probe-aware version: every OTHER method routes through
+     // getJsonRaw / postJson, which call ensureApiVersion() implicitly
+     // and end up on the current working version. This
+@@ -316,7 +318,7 @@ export class AulaClient {
+         res.body.slice(0, 300),
+       );
+     }
+-    const env = JSON.parse(res.body) as AulaEnvelope<ThreadMessagesData>;
++    const env = decodeEnvelope<ThreadMessagesData>(res);
+     if (env.status?.code === 403) {
+       throw new AulaStepUpRequiredError(
+         env.status.message ??
+@@ -331,11 +333,10 @@ export class AulaClient {
+         res.body.slice(0, 300),
+       );
+     }
+-    const data: ThreadMessagesData = env.data ?? { messages: [] };
+-    return {
+-      ...(data.subject ? { subject: data.subject } : {}),
+-      messages: data.messages ?? [],
+-    };
++    const data = env.data;
++    validatePage(data, 'messages', opts.page ?? 0);
++    if (!data) throw new AulaApiError('Missing thread data', 200, '');
++    return data;
+   }
+ 
+   /**
+@@ -350,7 +351,7 @@ export class AulaClient {
+    * `posts.getAllPosts` — class-level news feed (teacher posts, etc.).
+    * Returns the raw `data` field. Pagination via `limit` + `index` (both 0-based).
+    */
+-  async getPosts(opts: GetPostsArgs = {}): Promise<PostsData | undefined> {
++  async getPosts(opts: GetPostsArgs = {}): Promise<PostsData> {
+     const params = new URLSearchParams();
+     params.set('method', 'posts.getAllPosts');
+     // Without `parent=profile` + the institution-profile filter Aula answers
+@@ -364,7 +365,19 @@ export class AulaClient {
+     for (const id of opts.institutionProfileIds ?? []) {
+       params.append('institutionProfileIds[]', String(id));
+     }
+-    return this.getJsonRaw<PostsData>(params);
++    const data = await this.getJsonRaw<PostsData>(params);
++    if (data?.hasMorePosts !== undefined) {
++      if (
++        typeof data.hasMorePosts !== 'boolean' ||
++        (data.moreMessagesExist !== undefined && data.moreMessagesExist !== data.hasMorePosts)
++      ) {
++        throw new AulaApiError('Invalid or conflicting posts pagination', 200, '');
++      }
++      data.moreMessagesExist = data.hasMorePosts;
++    }
++    validatePage(data, 'posts');
++    if (!data) throw new AulaApiError('Missing posts data', 200, '');
++    return data;
+   }
+ 
+   /**
+@@ -505,7 +518,7 @@ export class AulaClient {
+     if (status !== 200) {
+       throw new AulaApiError(`API returned status ${status}`, status, url, body.slice(0, 300));
+     }
+-    const env = JSON.parse(body) as AulaEnvelope<T>;
++    const env = decodeEnvelope<T>(res);
+     if (env.status?.code && env.status.code !== 0) {
+       throw new AulaApiError(
+         `API error code ${env.status.code}: ${env.status.message ?? '<unknown>'}`,
+@@ -524,6 +537,48 @@ export class AulaClient {
+   }
+ }
+ 
++function isRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === 'object' && value !== null && !Array.isArray(value);
++}
++
++function decodeEnvelope<T>(response: AulaResponse): AulaEnvelope<T> {
++  let value: unknown;
++  try {
++    value = JSON.parse(response.body);
++  } catch (error) {
++    if (!(error instanceof SyntaxError)) throw error;
++    throw new AulaApiError('Invalid JSON response', response.status, '');
++  }
++  if (
++    !isRecord(value) ||
++    !isRecord(value.status) ||
++    !Number.isInteger(value.status.code) ||
++    (value.status.code === 0 && value.data == null)
++  ) {
++    throw new AulaApiError('Invalid Aula response envelope', response.status, '');
++  }
++  // Endpoint-specific validation follows; non-zero status is handled by the caller.
++  return value as AulaEnvelope<T>;
++}
++
++function validatePage(data: unknown, collection: string, requestedPage?: number): void {
++  if (!isRecord(data)) throw new AulaApiError(`Missing ${collection} data`, 200, '');
++  const items = data[collection];
++  if (
++    !Array.isArray(items) ||
++    !items.every(isRecord) ||
++    typeof data.moreMessagesExist !== 'boolean' ||
++    (items.length === 0 && data.moreMessagesExist) ||
++    (data.page !== undefined &&
++      (!Number.isInteger(data.page) ||
++        typeof data.page !== 'number' ||
++        data.page < 0 ||
++        (requestedPage !== undefined && data.page !== requestedPage)))
++  ) {
++    throw new AulaApiError(`Invalid or incomplete ${collection} page`, 200, '');
++  }
++}
++
+ /**
+  * Build the `presence.updatePresenceTemplate` POST body.
+  *
+diff --git a/packages/aula-client/src/aula-types.ts b/packages/aula-client/src/aula-types.ts
+index 1284d12..e45318a 100644
+--- a/packages/aula-client/src/aula-types.ts
++++ b/packages/aula-client/src/aula-types.ts
+@@ -326,8 +326,9 @@ export interface AulaPost {
+ }
+ 
+ export interface PostsData {
+-  posts?: AulaPost[];
+-  moreMessagesExist?: boolean;
++  posts: AulaPost[];
++  moreMessagesExist: boolean;
++  hasMorePosts?: boolean;
+   profileLastSeenPostDate?: string;
+ }
+ 
+@@ -364,7 +365,7 @@ export interface ThreadsData {
+   page?: number;
+   /** True when further pages exist. Aula's own name for it — see ThreadsPage
+    *  for the shape callers should prefer. */
+-  moreMessagesExist?: boolean;
++  moreMessagesExist: boolean;
+ }
+ 
+ /**
+@@ -411,6 +412,8 @@ export interface ThreadMessage {
+ export interface ThreadMessagesData {
+   messages: ThreadMessage[];
+   subject?: string;
++  page?: number;
++  moreMessagesExist: boolean;
+ }
+ 
+ // --------------------------------------------------------------------------
+diff --git a/packages/mcp-server/src/tools.test.ts b/packages/mcp-server/src/tools.test.ts
+index 6abd77c..9934032 100644
+--- a/packages/mcp-server/src/tools.test.ts
++++ b/packages/mcp-server/src/tools.test.ts
+@@ -1,5 +1,12 @@
+ import { describe, expect, test } from 'bun:test';
+-import { htmlToText } from '@aula-mcp/aula-client';
++import { MemoryTokenStore } from '@aula-mcp/aula-auth';
++import { AulaClient, htmlToText } from '@aula-mcp/aula-client';
++import { Client } from '@modelcontextprotocol/sdk/client/index.js';
++import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
++import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
++import { z } from 'zod';
++import { FakeHttp } from '../../aula-client/src/test-helpers.ts';
++import { AulaContext } from './aula-context.ts';
+ import { registerTools, slimPost, validateSetTemplateArgs } from './tools.ts';
+ 
+ describe('validateSetTemplateArgs', () => {
+@@ -259,3 +266,109 @@ describe('slimPost', () => {
+     expect(slim.attachments?.[0]?.name).toBe('ok.pdf');
+   });
+ });
++
++describe('Orbit MCP read contract', () => {
++  const textResult = z.object({
++    content: z.tuple([z.object({ type: z.literal('text'), text: z.string() })]),
++  });
++
++  class FixtureContext extends AulaContext {
++    constructor(private readonly fixtureClient: AulaClient) {
++      super({ store: new MemoryTokenStore() });
++    }
++    override async getClient() {
++      return this.fixtureClient;
++    }
++    override async getGuardianUserId() {
++      return 'fictional-guardian';
++    }
++  }
++
++  async function withClient(run: (client: Client, http: FakeHttp) => Promise<void>) {
++    const http = new FakeHttp();
++    const context = new FixtureContext(
++      new AulaClient({
++        http: http.asHttpClient(),
++        tokens: {
++          access_token: 'FICTIONAL_AT',
++          refresh_token: 'FICTIONAL_RT',
++          token_type: 'Bearer',
++          expires_in: 3600,
++          expires_at: 4_000_000_000,
++          obtained_at: 0,
++        },
++      }),
++    );
++    const server = new McpServer({ name: 'orbit-offline-test', version: '1' });
++    const previousWrite = process.env.AULA_MCP_WRITE;
++    const previousRaw = process.env.AULA_MCP_RAW;
++    process.env.AULA_MCP_WRITE = '0';
++    process.env.AULA_MCP_RAW = '0';
++    try {
++      registerTools(server, context);
++    } finally {
++      if (previousWrite === undefined) delete process.env.AULA_MCP_WRITE;
++      else process.env.AULA_MCP_WRITE = previousWrite;
++      if (previousRaw === undefined) delete process.env.AULA_MCP_RAW;
++      else process.env.AULA_MCP_RAW = previousRaw;
++    }
++    const client = new Client({ name: 'orbit-offline-test', version: '1' });
++    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
++    await server.connect(serverTransport);
++    await client.connect(clientTransport);
++    try {
++      await run(client, http);
++    } finally {
++      await client.close();
++      await server.close();
++    }
++  }
++
++  function response(data: unknown) {
++    return { status: 200, body: JSON.stringify({ status: { code: 0 }, data }) };
++  }
++
++  for (const [name, key, args] of [
++    ['aula.messages.list_threads', 'threads', { page: 0 }],
++    ['aula.messages.get_thread', 'messages', { threadId: 123, page: 0 }],
++    ['aula.posts.list', 'posts', { profileIds: [1], limit: 50, index: 0 }],
++  ] as const) {
++    test(`${name} preserves continuation through MCP serialization`, async () => {
++      await withClient(async (client, http) => {
++        http.enqueue(
++          response({ profiles: [] }),
++          response({ [key]: [{ id: 1 }], page: 0, moreMessagesExist: true }),
++        );
++        const result = await client.callTool({ name, arguments: args });
++        expect(result.isError).not.toBe(true);
++        const data = JSON.parse(textResult.parse(result).content[0].text);
++        expect(data[key]).toHaveLength(1);
++        expect(data[key === 'threads' ? 'hasMorePages' : 'moreMessagesExist']).toBe(true);
++        expect(http.requested.every((request) => request.method === 'GET')).toBe(true);
++      });
++    });
++
++    test(`${name} surfaces malformed data as an MCP error, not empty success`, async () => {
++      await withClient(async (client, http) => {
++        http.enqueue(response({ profiles: [] }), response({}));
++        const result = await client.callTool({ name, arguments: args });
++        expect(result.isError).toBe(true);
++      });
++    });
++  }
++
++  test('write and raw tools cannot be called with their gates disabled', async () => {
++    await withClient(async (client, http) => {
++      const tools = await client.listTools();
++      for (const name of [
++        'aula.messages.mark_read',
++        'aula.presence.set_template',
++        'aula.raw_request',
++      ]) {
++        expect(tools.tools.some((tool) => tool.name === name)).toBe(false);
++        expect((await client.callTool({ name, arguments: {} })).isError).toBe(true);
++      }
++      expect(http.requested).toEqual([]);
++    });
++  });
++});
+diff --git a/packages/mcp-server/src/tools.ts b/packages/mcp-server/src/tools.ts
+index 572405d..eda5a00 100644
+--- a/packages/mcp-server/src/tools.ts
++++ b/packages/mcp-server/src/tools.ts
+@@ -709,12 +709,10 @@ export function registerTools(server: McpServer, context: AulaContext): void {
+         institutionProfileIds,
+       });
+ 
+-      const rawPosts = result?.posts ?? [];
++      const rawPosts = result.posts;
+       return jsonContent({
+         count: rawPosts.length,
+-        ...(typeof result?.moreMessagesExist === 'boolean'
+-          ? { moreMessagesExist: result.moreMessagesExist }
+-          : {}),
++        moreMessagesExist: result.moreMessagesExist,
+         posts: rawPosts.map(slimPost),
+       });
+     },
+@@ -963,7 +961,9 @@ export function registerTools(server: McpServer, context: AulaContext): void {
+     {
+       title: 'Read a single thread',
+       description:
+-        'Returns subject + every message in the thread. If the thread is sensitive, ' +
++        'Returns one page of messages, subject, and moreMessagesExist. ' +
++        'Continue with page + 1 while moreMessagesExist is true. ' +
++        'Missing completion metadata is an error, not an empty thread. If the thread is sensitive, ' +
+         'this tool returns an error code that means the user must MitID step-up to read it ' +
+         '(currently a fresh `aula login` from the CLI).',
+       inputSchema: {

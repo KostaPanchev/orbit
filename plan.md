@@ -6,7 +6,7 @@ Reduce the mental load of following school and kindergarten information: explain
 
 Phases 1 and 2 are implemented as a Next.js App Router/TypeScript frontend with Tailwind CSS, fictional fixtures, and local SQLite persistence. Today, Upcoming, Review, source drawers, child filters, and local settings are interactive. A separate Node worker performs synthetic imports; approvals, edits, and dismissals survive reloads and restarts. No family data, Aula account, AI provider, remote hosting, or external calendar has been accessed or enabled.
 
-The UI prototype and local-organizer acceptance checks are complete; the next step is user feedback on Phase 2. Phases 3-5 remain unstarted and require separate authorization. The request to begin Phase 2 was treated as approval to continue with the existing Phase 1 UI, not approval of any live integration.
+The UI prototype and local-organizer acceptance checks are complete. Phase 3 was requested on 2 November 2026 and its live-data policy decisions are approved. The pinned companion patch, isolated credential storage, pre-login checks, cleanup, and content-free account-validation command are implemented. The user completed guarded login and authorized a local read sample, which passed after a post-pagination compatibility fix. Full-window normalization, remaining account checks, retention/deletion, and live worker/UI integration are still outstanding; no source records have been imported. Phases 4-5 remain unstarted and require separate authorization.
 
 Build a dashboard first, not a chatbot or general-purpose autonomous agent. Use a controlled ingestion and summarization workflow so the interface remains useful even when Aula or AI is unavailable.
 
@@ -81,7 +81,7 @@ Display last successful refresh, brief generation time, and source coverage sepa
 
 ## Aula integration research and recommendation
 
-These are community integrations, not a verified official integration contract. Repository documentation and selected implementation files were inspected; none was installed or tested against the user's account. Popularity and advertised tests are not proof of reliability or safety.
+These are community integrations, not a verified official integration contract. Initial research inspected documentation and selected implementation files without installation or account access. Phase 3 now has a pinned preferred-companion checkout and offline tests, but no account validation. Popularity and advertised tests are not proof of reliability or safety. Phase 3's pinned-source inspection and remaining blockers are recorded below.
 
 | Candidate | Relevant evidence | Recommendation |
 | --- | --- | --- |
@@ -272,21 +272,71 @@ Todo: **Implementing persistent local workflows** (`prototype-data`), after `pro
 
 **Phase 2 behavior changes from the UI prototype:** reload now preserves decisions; approval says "Saved to Orbit"; scenario selection queues real synthetic ingestion instead of switching presentation only; loading completes; empty responses retain saved data; actual processing timestamps replace simulated refresh timestamps. The fixed fictional agenda date remains visible.
 
-**Remaining work/blockers:** no implementation blocker within Phase 2. User feedback and hands-on Mac sleep/resume observation remain useful; automated tests cover elapsed-time lease renewal, not physical sleep. No Phase 3 data safeguards or account access have been approved.
+**Remaining work/blockers:** no implementation blocker within Phase 2. User feedback and hands-on Mac sleep/resume observation remain useful; automated tests cover elapsed-time lease renewal, not physical sleep. The separate Phase 3 request and policy decisions are recorded below.
 
-**Next step:** demonstrate the local organizer and stop for feedback. Start Phase 3 only on a separate request after its live-data gate is satisfied.
+**Next step:** continue within the separately authorized Phase 3 feasibility work; preserve the synthetic organizer until live safeguards and connector validation pass.
 
 ### Phase 3: read-only Aula integration
 
 **Outcome:** show authorized messages, posts, and structured Aula calendar events in the existing UI.
 
-1. **Confirming live-data safeguards and access** (`live-data-gate`): resolve storage, retention, access, credential handling, and authorization for user-driven login. Depends on `prototype-data`; blocked until these decisions are supplied.
+1. **Confirming live-data safeguards and access** (`live-data-gate`): policy decisions supplied on 2 November 2026; enforce and verify them before activation. Depends on `prototype-data`.
 2. **Validating the Aula connector** (`aula-feasibility`): pin the connector and complete the feasibility checklist above. Depends on `live-data-gate`.
 3. **Implementing and testing live synchronization** (`live-sync`): wire the allowlisted adapter into the worker with pagination, reconciliation, recovery, and coverage indicators. Depends on `aula-feasibility`.
 
 Do not present synthetic summaries as summaries of live sources. Until Phase 4, show source previews and structured events, and label AI summaries/suggestions as not enabled.
 
 **Exit criteria:** authorized read-only access, pagination, and reconnect paths work; imports are idempotent; unavailable sources are disclosed; no messages are marked read and no Aula writes occur. Stop if the connector or access conditions are unsuitable.
+
+**Approved safeguards (2 November 2026):**
+
+- Keep the app, worker, database, and connector on the existing Mac with loopback-only access; no remote access.
+- Require FileVault-protected storage and exclude Orbit data and connector tokens from backups. This is the approved storage arrangement, not a claim that Orbit has verified or configured those protections.
+- Retain live source data and related agenda/review records for at most 90 days. Implement expiry and explicit delete-all before live ingestion; ensure unchanged reimports cannot extend retention indefinitely.
+- Disconnect stops synchronization and removes connector tokens. Retain local records until expiry or explicit deletion, with disconnected/stale status; do not silently delete them on disconnect.
+- The user authorized inspection and direct user-driven login after safeguards pass and confirmed account-access authorization. Credentials, tokens, and family content must not enter chat or diagnostic artifacts.
+- AI processing, excluded attachments/providers, Aula writes, read-marker changes, and remote deployment remain disabled. Account authorization does not by itself establish that unofficial automation is permitted by Aula/MitID terms.
+
+**Feasibility status: offline patch verified; live activation blocked.** Source inspection pinned the preferred candidate to [Casperjuel/aula-mcp `d9a27d84933446783c89446ba3e9d799fd47ea2c`](https://github.com/Casperjuel/aula-mcp/tree/d9a27d84933446783c89446ba3e9d799fd47ea2c) (release 1.6.2). Its source and development dependencies are checked out locally for offline tests, not connected to the Orbit worker. The following findings describe the unpatched pin:
+
+- [Client response handling](https://github.com/Casperjuel/aula-mcp/blob/d9a27d84933446783c89446ba3e9d799fd47ea2c/packages/aula-client/src/aula-client.ts#L242): calendar responses with missing data become `[]`; thread lists with missing `threads` or continuation fields become empty/complete results. Missing individual-thread data/messages also become empty arrays.
+- [Individual-thread tool](https://github.com/Casperjuel/aula-mcp/blob/d9a27d84933446783c89446ba3e9d799fd47ea2c/packages/mcp-server/src/tools.ts#L959): accepts a page argument but returns only subject/messages, losing any upstream completion metadata. Its description claiming every message is not proof of complete coverage.
+- [Posts tool](https://github.com/Casperjuel/aula-mcp/blob/d9a27d84933446783c89446ba3e9d799fd47ea2c/packages/mcp-server/src/tools.ts#L671): missing posts become an empty array and the continuation flag is optional. Orbit cannot recover information discarded by the companion by validating the resulting MCP payload alone.
+- The inspected code separates the write-gated read-marker operation from thread fetching, and supports stdio plus encrypted token storage. These are positive source-level findings, not proof of account-specific read-only behavior, token expiry/reconnect, or permitted unattended use.
+- As required by the fallback checklist, inspected [miklen/aula_mcp `1e84ee5781dc77057c14790b2bc45df0c859a25e`](https://github.com/miklen/aula_mcp/tree/1e84ee5781dc77057c14790b2bc45df0c859a25e). Its [posts client](https://github.com/miklen/aula_mcp/blob/1e84ee5781dc77057c14790b2bc45df0c859a25e/aula_mcp/client.py#L612) likewise collapses missing data into an empty list and drops completion metadata. Its [token persistence](https://github.com/miklen/aula_mcp/blob/1e84ee5781dc77057c14790b2bc45df0c859a25e/aula_mcp/state.py#L141) writes JSON without explicit private-file permissions or encryption in that save path. It is not adopted; account validation was not attempted after these source-level gaps were found.
+
+**Approved dependency-strategy adjustment:** the user approved a minimal local patch to the pinned preferred companion and offline regression tests, then explicitly approved pre-login safeguards using an isolated encrypted-file store. Maintain the response/pagination and private-session persistence patch locally, without changing the authentication protocol or publishing a fork/PR. The rejected alternative does not change Orbit's architecture.
+
+**Implemented and verified offline:**
+
+- `patches/aula-mcp-read-contract.patch` validates response envelopes and required collection/completion fields, rejects missing/invalid pagination and inconsistent page echoes, and preserves individual-thread pagination metadata through MCP. Unknown completeness is an error; neither a short page nor a missing field means success. Authentication is unchanged. The upstream MIT notice is retained alongside the patch.
+- `pnpm aula:prepare` checks out the exact pin under ignored `.orbit/aula-mcp` and applies only the recorded patch. `pnpm aula:check` verifies revision and exact tracked diff; both reject unexpected changes rather than overwriting them. A clean-checkout reproduction verified the actual patch, not just a synthetic example.
+- `pnpm aula:test` runs the companion type-check, affected-file lint, and fictional client/MCP/private-store tests using locally installed pinned Bun 1.4.4. No real authentication, real credential-store access, live data requests, or imports occur in those tests; package installation may download public dependencies. Login does not install or download a runtime.
+- 144 focused companion tests pass, including malformed responses, HTTP 401/403/429/500, explicit empty success, more than 20 threads, native post-pagination compatibility, multi-page posts/thread messages, MCP error/continuation serialization, and private encrypted persistence with mocked login results. Write/raw tool gates are tested disabled; read-marker changes are absent from the tested read request sequences.
+- All 158 client tests also passed after the shared parser change. Orbit tests, lint, type-check, and production build pass; preparation/session tests cover exact pin/patch verification, protected permissions, environment and terminal gates, cleanup isolation/failures, concurrency, and child shutdown. No UI behavior changed and no new browser checks were needed.
+
+**Pre-login safeguards (implemented 2 November 2026):**
+
+- `pnpm aula:preflight` creates/validates marked `.orbit/aula-auth` storage (`0700` directories, `0600` files), rejects unsafe links/permissions/ACLs, and requires fully enabled FileVault on the startup data volume plus Time Machine exclusion of the data and credential directories.
+- Applied the previously approved Time Machine exclusion only to `.orbit`; actual preflight subsequently passed on this Mac. Other backup/cloud-sync systems cannot be verified automatically and remain a user-confirmation gate. Exclusion does not remove historical backups.
+- `pnpm aula:login` is available only in the user's own interactive terminal, with explicit permitted-use and other-backup confirmations. It verifies the pinned companion/local Bun, enforces preflight, and runs the unchanged MitID/OAuth protocol with an isolated home/config, private umask, and restricted environment. No real login was attempted during implementation.
+- Reuse the companion's AES-256-GCM file store rather than the shared macOS Keychain entry. Tokens and their local key remain in the protected, backup-excluded session directory. The private-session patch disables saved cookies, identifying login logs, and debug transcripts; failed-login error payloads are not printed. Cookie-based silent reauthentication is intentionally disabled; future refresh must use the authorized token flow or user-driven reconnect.
+- `pnpm aula:disconnect` removes the owned token/key, any leftover cookies/logs/transcripts, and the session directory, while leaving the agenda/database and unrelated Aula installations intact. Cleanup never follows symlinks or crosses mounted volumes; failures are explicit. This is local deletion, not remote revocation or forensic/backup erasure.
+- Session operations are serialized. Interrupted login children are stopped and awaited before failure cleanup; failed/cancelled login clears prior/partial credentials in this isolated store. Force-killed operations can leave a lock and intentionally require local process verification before manual lock removal.
+
+**First user-driven login follow-up (2 November 2026):** the reported authentication succeeded, but Orbit rejected the saved session because Bun created its runtime code cache inside the isolated home/credential directory. Reproduced this offline with the actual pinned CLI's help command and a fictional TypeScript process; no real credential files were read and no authentication was repeated. The wrapper now forces `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0` and `DO_NOT_TRACK=1` without weakening the credential allowlist. The new regression failed before the fix and passes afterward, preserving fictional credential files; all 20 session tests, lint, type-check, and production build passed. The user subsequently retried successfully, as recorded below.
+
+**Account-validation follow-up (2 November 2026):** the user subsequently confirmed successful guarded login and explicitly approved local validation that reports counts/status only.
+
+- Added the pinned Node MCP SDK and an application-side five-tool allowlist over stdio, with validated arguments, sanitized responses/errors, suppressed provider stderr, bounded payloads/timeouts, and process shutdown before releasing the protected session lock. No raw/write, presence, discovery, attachment, or provider tools can be dispatched.
+- `pnpm aula:validate --confirm-read-only-check` traverses bounded post/thread listings, checks this week's calendar and a three-thread sample, and compares read flags. It stores no source records or diagnostic report files, and prints no names, IDs, message/post content, source hashes, or credential values.
+- The first authorized check passed profiles/calendar/thread listings/sampled messages but exposed a posts-contract mismatch. A fixed-field, content-free diagnostic established the actual boolean field as `hasMorePosts`. The patch now normalizes that explicit flag; it still rejects missing, malformed, or conflicting continuation evidence. Temporary diagnostic instrumentation was removed.
+- The repeated authorized check returned `sample-checks-passed`, including multi-page posts/thread listings and unchanged read flags in the sampled threads. No live imports were performed. This is limited evidence, not proof of all-source coverage, unread-message behavior, full-window date/ID mapping, or token expiry/reconnect.
+- Offline tests cover more-than-20 thread pagination, short-but-nonterminal post pages, missing/conflicting flags, duplicates, bounds, unsafe-tool denial, content/error redaction, read-state changes, and real stdio child shutdown. The complete Orbit suite passes 71 tests; lint, type-check, production build, and the 144 companion tests pass.
+
+**Remaining work and next step:** account setup is no longer the blocker. Complete source normalization (stable event IDs, audiences, dates/cancellations, and a real 30-day window), unread/expiry/reconnect verification, then implement the live adapter, 90-day retention/deletion, and worker/UI integration. The current domain, services, worker, and views remain synthetic-only; logging in or validating cannot switch them to live data. Do not weaken evidence requirements or mix fictional briefs into live results. See [the validation command and limitations](./README.md#content-free-account-validation).
+
+Only after that feasibility gate passes may `live-sync` reuse the allowlisted reader for live source previews/events, retries/recovery, retention, worker disconnect integration, and live-data deletion. Implement and verify live-record retention/deletion before any persistent live imports. Attachment/provider tools remain excluded. The application still rejects live datasets; existing synthetic behavior is unchanged. Phase 3 is not complete.
 
 ### Phase 4: source-grounded AI briefs and suggestions
 
