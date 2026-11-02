@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { Source } from "@/demo/fixtures";
-import { formatSourceTime } from "@/demo/state";
+import type { Source } from "@/domain/model";
+import { formatSourceTime } from "@/domain/presentation";
 import { Dialog } from "./dialog";
 import { Icon } from "./icon";
 

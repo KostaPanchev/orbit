@@ -41,3 +41,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local organizer data, including SQLite sidecars
+/.orbit/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

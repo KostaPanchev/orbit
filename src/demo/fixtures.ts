@@ -1,61 +1,4 @@
-export const DEMO_DATE = "2026-11-02";
-export const WINDOW_END = "2026-12-02";
-export const REFRESH_TIME = "2 Nov, 07:30";
-export const BRIEF_TIME = "2 Nov, 07:32";
-
-export const children = {
-  emma: { name: "Emma", institution: "Lindely School · 2B", initial: "E" },
-  alex: { name: "Alex", institution: "Birch Kindergarten", initial: "A" },
-} as const;
-
-export type ChildId = keyof typeof children;
-export type ChildFilter = ChildId | "all";
-export type SourceKind = "Message" | "Post" | "Calendar";
-
-export interface Source {
-  id: string;
-  kind: SourceKind;
-  title: string;
-  author: string;
-  timestamp: string;
-  excerpt: string;
-  attachment?: string;
-}
-
-export interface EventDetails {
-  title: string;
-  date: string;
-  time: string;
-  location: string;
-}
-
-export interface AgendaEntry extends EventDetails {
-  id: string;
-  child: ChildId;
-  source: Source;
-  origin: "Structured calendar" | "Approved suggestion";
-}
-
-export interface Suggestion extends Omit<EventDetails, "date"> {
-  id: string;
-  date: string | null;
-  child: ChildId;
-  source: Source;
-  summary: string;
-  uncertainty?: string;
-  replacesId?: string;
-  busyOnly?: boolean;
-}
-
-export interface BriefItem {
-  id: string;
-  child: ChildId;
-  title: string;
-  summary: string;
-  source: Source;
-  label: string;
-  busyOnly?: boolean;
-}
+import { DEMO_DATE, type Source, type AgendaEntry, type Suggestion, type BriefItem } from "../domain/model";
 
 const trip: Source = {
   id: "post-trip-v1",
@@ -152,22 +95,3 @@ export const brief: BriefItem[] = [
   { id: "lantern", child: "alex", label: "Changed", title: "The lantern walk has moved", summary: "Friday, 13 November at 16:30 in the kindergarten garden. Your existing agenda entry is unchanged until you review the revision.", source: lantern },
   { id: "library", child: "emma", label: "Today", title: "One more thing for the school bag", summary: "Return Emma's library books today. This extra item is part of the busy-day demo.", source: library, busyOnly: true },
 ];
-
-export const scenarios = {
-  normal: { label: "Normal day", title: "Your demo is up to date", detail: "Fictional messages, posts, and calendar checked. Attachments and weekly plans are not processed.", tone: "neutral" },
-  busy: { label: "Busy day", title: "A little more happening today", detail: "An extra fictional deadline has arrived. Nothing was fetched from Aula.", tone: "neutral" },
-  empty: { label: "Empty", title: "No items in the checked demo sources", detail: "All three core fixture sources were successfully checked. This does not cover attachments, weekly plans, or sensitive content.", tone: "neutral" },
-  loading: { label: "Loading", title: "Simulating a refresh", detail: "This paused loading scenario makes no network requests. Choose another scenario to continue.", tone: "neutral" },
-  partial: { label: "Partial results", title: "Some information could be missing", detail: "Demo messages could not be checked, including a sensitive message. Showing the previous message data; posts and calendar checks succeeded.", tone: "warning" },
-  stale: { label: "Stale data", title: "This overview may be out of date", detail: "The demo refresh is overdue. Previous successful data is still available; check Aula yourself for changes.", tone: "warning" },
-  error: { label: "Refresh error", title: "The demo refresh did not complete", detail: "A simulated connection error interrupted every source check. Previous successful data is shown, not an all-clear result.", tone: "warning" },
-  disconnected: { label: "Disconnected", title: "Demo connection is disconnected", detail: "These are previously loaded fictional items. Nothing is connected and no new sources have been checked.", tone: "warning" },
-  reconnect: { label: "Reconnect required", title: "Demo session needs reconnecting", detail: "A fictional session has expired. Previous data remains visible. This prototype does not sign in or request credentials.", tone: "warning" },
-  "ai-unavailable": { label: "AI unavailable", title: "Demo summary processing is unavailable", detail: "Showing the previous prewritten brief with its original timestamp. Structured calendar events remain available. No AI is used.", tone: "warning" },
-} as const;
-
-export type Scenario = keyof typeof scenarios;
-
-export function isScenario(value: string): value is Scenario {
-  return Object.hasOwn(scenarios, value);
-}
