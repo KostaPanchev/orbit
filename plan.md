@@ -4,7 +4,9 @@
 
 Reduce the mental load of following school and kindergarten information: explain what matters today, show upcoming events and deadlines, and turn relevant information into reviewable event suggestions.
 
-The repository is empty, with no application, dependencies, tests, or existing conventions to preserve. This is a greenfield Next.js application. Planning and research have not changed the repository, installed software, or accessed any family data.
+Phase 1 is implemented as a Next.js App Router/TypeScript frontend with Tailwind CSS, fictional fixtures, and shared in-memory state. Today, Upcoming, Review, source drawers, child filters, and demo settings are interactive. No family data, Aula account, AI provider, database, or external calendar has been accessed or enabled.
+
+The UI prototype and its automated acceptance checks are complete; the next step is user UX feedback. Phases 2-5 remain unstarted and require separate authorization.
 
 Build a dashboard first, not a chatbot or general-purpose autonomous agent. Use a controlled ingestion and summarization workflow so the interface remains useful even when Aula or AI is unavailable.
 
@@ -34,7 +36,9 @@ Phase 1 must not require a database, backend integration, background worker, Aul
 - In Phase 1, approval changes only the in-memory demo agenda. From Phase 2, approval saves an item persistently inside Orbit. Google Calendar, Apple Calendar, calendar export/subscription, and external calendar writes are deferred.
 - Phase 1 simulates refresh. From Phase 2, refresh every 30 minutes while the local worker is running, with a manual refresh option. Update the daily brief when relevant information changes once AI is enabled.
 - Show the next 30 days by default.
-- Production hosting and AI provider remain undecided. Do not select or enable a cloud service implicitly.
+- Current hosting choice: run Orbit on the user's existing Mac, with the application, future SQLite database, and future worker on that machine. This avoids a hosting subscription; always-on availability is not required.
+- From Phase 2, refresh runs only while Orbit's local process and worker are running and the Mac is awake. Stopping the local process stops refresh; sleep suspends refresh. Closing a browser tab/window alone does not stop the local process or worker.
+- This local-hosting choice supersedes the earlier fully undecided hosting status. Remote access and any later production deployment remain unapproved; keep loopback-only access for now. The AI provider and processing location remain undecided. No cloud service or later phase is authorized by this decision.
 
 ## Recommended product experience
 
@@ -205,7 +209,7 @@ The prototype uses fictional families and school content only. Bind local servic
 
 Before live persistent ingestion in Phase 3, confirm:
 
-- Where the app, database, and worker run, and whether access is local-only or remote.
+- Reconfirm the selected Mac-local, loopback-only arrangement for the app, database, and worker before live ingestion; separately approve any remote access or change of host.
 - Authentication/access control for remote use, including authorization on every server-side read and mutation, secure sessions, transport security, and mutation protections.
 - A minimum necessary data-retention policy for originals, excerpts, summaries, decisions, logs, and backups; explicit disconnect and deletion behavior.
 - Host/storage encryption, protected connector tokens, secrets management, and backup/restore procedures. SQLite alone does not encrypt stored content.
@@ -214,7 +218,7 @@ Before Phase 4, separately confirm AI processing location/provider, data handlin
 
 Keep tokens in the connector's protected store, not Orbit's client or logs. Avoid third-party analytics, content-bearing error telemetry, and logging message bodies or names. Excluded attachments and sensitive content requiring additional access remain visibly unprocessed; do not automatically escalate authentication.
 
-For a deployed daily service, an always-on worker is required. A laptop prototype cannot refresh while asleep. Hosting remains a later decision, not an implied promise of unattended availability.
+For the selected Mac-local arrangement, interrupted refresh is explicitly acceptable: there is no refresh while the local process is stopped or the Mac sleeps. Browser-tab closure does not control the worker. Continuous unattended refresh would require an awake, running host and a separately approved operational arrangement; it is not a current requirement.
 
 ## Phased implementation todos
 
@@ -225,6 +229,15 @@ For a deployed daily service, an always-on worker is required. A laptop prototyp
 1. **Establishing the UI foundation** (`prototype-foundation`): scaffold Next.js/TypeScript, Tailwind, frontend checks, design tokens, and the accessible responsive shell.
 2. **Building the interactive demo** (`prototype-ui`): add fixtures and shared in-memory state; implement Today, Upcoming, Review, source details, child filters, and demo settings. Depends on `prototype-foundation`.
 3. **Validating and refining the UX** (`prototype-validation`): test primary interactions, responsive layout, keyboard access, zoom, and scenario states; document startup/reset behavior. Depends on `prototype-ui`.
+
+**Implementation status (2 November 2026):** all three Phase 1 todos are implemented and verified. Startup, reset behavior, fixture walkthrough, and validation commands are documented in [README.md](./README.md#getting-started).
+
+- Foundation: Next.js App Router, TypeScript, pnpm, custom Tailwind-styled components, local system fonts, semantic responsive shell, and frontend checks. Tailwind uses its standard PostCSS adapter; the generated Turbopack-specific adapter served stale CSS during rebuild validation and was replaced.
+- Demo: fictional Emma/Alex household, fixed 2 November 2026 clock, 30-day window ending 1 December, school/kindergarten filters, Danish source evidence, date-only events, unresolved-date confirmation, linked approval/revision flows, dismissals, and explicit reset. A revised lantern walk preserves the seeded user-edited title and replaces one agenda entry only after approval.
+- Scenarios: normal, busy, empty, loading, partial, stale, error, disconnected, reconnect required, and AI unavailable. Loading is deliberately paused for inspection. Scenario changes preserve in-memory decisions; empty hides fixture content. Simulated refresh preserves fixed fictional timestamps and the selected scenario and does not contact any service.
+- Verified: lint, type-check, production build, 17 unit/component tests, and 20 browser checks across desktop and mobile-emulated Chromium. Browser checks cover keyboard-only actions, focus return, navigation/reload/reset, filtering, source inspection, scenario states, absence of external requests/storage writes, 320px reflow, and 200% CSS zoom. Axe checks cover all views and dialogs; visual browser inspection supplements automation.
+- Remaining: user evaluation of the UX. No implementation blockers remain. Physical-device, other browser engines, and screen-reader checks are not claimed; automated accessibility checks do not establish full WCAG certification.
+- Next step: demonstrate and collect UX feedback. Do not start Phase 2 without a separate request.
 
 Use a fictional household with school and kindergarten information: a normal day, a busy day, an upcoming trip, a deadline, an ambiguous event time, a changed event, and an item with an unprocessed attachment. Include prewritten English summaries and fictional Danish source excerpts. No AI generates this content.
 
@@ -273,6 +286,8 @@ Do not present synthetic summaries as summaries of live sources. Until Phase 4, 
 ### Phase 5: private deployment and operational readiness
 
 **Outcome:** reliable access outside the development session using a deployment model chosen by the user.
+
+The current choice is Mac-local operation with acceptable downtime. This phase remains deferred; that choice does not authorize an always-on service or remote deployment.
 
 1. **Choosing deployment and access controls** (`deployment-gate`): confirm hosting, local-only versus remote access, access controls, and backup ownership. Depends on `live-validation`; blocked until these decisions are supplied.
 2. **Deploying and verifying private operation** (`private-deployment`): configure deployment, enforce access controls, supervise the worker, protect secrets/storage, and test backup/restore, restart recovery, disconnect, retention, and deletion. Depends on `deployment-gate`.
