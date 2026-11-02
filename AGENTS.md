@@ -30,13 +30,13 @@ Read the relevant sections of [plan.md](./plan.md) before implementation. The pl
 | 4 | Source-grounded AI briefs and event suggestions | Explicit provider, processing location, and data-handling decisions |
 | 5 | Private deployment and operational readiness | Explicit hosting, access-control, and recovery decisions |
 
-Google/Apple calendar connections, exports, subscriptions, and external calendar writes are deferred. So are weekly-plan providers, attachments/OCR, notifications, chores, and multi-household support unless separately requested.
+Google/Apple calendar connections, exports, subscriptions, and external calendar writes are deferred. So are weekly-plan providers other than the separately approved read-only EasyIQ SkolePortal source, attachments/OCR, notifications, chores, and multi-household support unless separately requested.
 
 ## Current phase: live Aula preview; paused before Phase 4
 
 Phases 1 and 2 are implemented and verified. Phase 3 now has an authorized real-data preview with persistent imports, retention, and privacy controls; it is not yet accepted as complete. See [the current handoff](./plan.md#phase-3-handoff-and-remaining-checks) for the latest unverified edits and remaining checks. Phase 4 has not started.
 
-The user stopped all Orbit tasks/servers and wants changes before Phase 4. Leave services stopped unless requested otherwise. Do not treat a handoff, documentation update, or successful login as permission to resume live reads or start AI work. Preserve modified/untracked live implementation files and existing data. The last running build predates some saved edits; validate those edits before claiming the current source fully works.
+The pre-Phase-4 UI refinement is implemented; see [its behavior and verification scope](./plan.md#pre-phase-4-ui-refinement). Do not start or restart live services without a request. Do not treat a handoff, documentation update, or successful login as permission to resume live reads or start AI work. Preserve modified/untracked files and existing data. Focused UI checks are not final Phase 3 integration acceptance.
 
 - Use Next.js App Router, TypeScript, pnpm, and Tailwind CSS. Build custom, minimal Material-inspired components, not the Material UI library.
 - Keep synthetic and live modes separate. Live mode shows original source previews and structured calendar facts, never fictional briefs/suggestions. Real AI, browser storage, and external calendars remain disabled.
@@ -48,10 +48,15 @@ The user stopped all Orbit tasks/servers and wants changes before Phase 4. Leave
 
 ### Current architecture and checks
 
-- `src/app/` owns the four routes and responsive design tokens/styles; Tailwind runs through `postcss.config.mjs`.
+- `src/app/` owns the five UI routes and responsive design tokens/styles; Tailwind runs through `postcss.config.mjs`.
 - `src/demo/fixtures.ts` supplies fictional evidence to synthetic ingestion only. Do not import fixtures into client components. `src/domain/model.ts` defines Zod schemas and mode-aware DTOs; `dates.ts` owns live Copenhagen windows and timestamp normalization.
 - `src/components/organizer-provider.tsx` mounts in the root layout, reads snapshots, and posts mutations to `src/app/api/organizer/route.ts`. Browser polling reads status only; it must never trigger ingestion.
 - `src/domain/presentation.ts` owns shared selectors/formatters. Server-only SQLite access is under `src/server/db/`; services and the worker share the same validated workflows.
+- Navigation order is Overview, Upcoming, School schedule, Review, Local settings. Overview retains the mixed horizon preview; live Upcoming is an AI-disabled placeholder. Demo Upcoming shows only approved suggestions; School schedule shows only structured calendar entries. Split by `AgendaEntry.origin`, never by title or source text.
+- School schedule uses Monday-start weeks within the snapshot's existing 30-date window. Preserve household/kindergarten/weekend and overlapping events, exclusive all-day ends, and unavailable boundary dates. Week navigation must not fetch or ingest data; use the existing date helpers and source dialog.
+- `src/server/aula/school-plan.ts` imports approved EasyIQ SkolePortal (widget 0128) child/week snapshots as `Weekly plan` sources. `Snapshot.schoolPlan` keeps lesson records separate from Overview/Upcoming. Only complete, validated weeks replace saved content; failed weeks retain content and incomplete coverage. Existing retention/deletion applies without a migration.
+- The patched provider tool returns whitelisted fields, validates the echoed child identity, and keeps raw auth/login IDs and error bodies inside the companion. Allow only this provider, one child/institution per request, and explicit ISO weeks. Keep other provider/raw/write/attachment tools denied.
+- `lesson-content.ts` parses provider HTML offline with `parse5`; render only plain text and validated links, never upstream HTML. `schoolScheduleEntries` combines only unique exact child/date/start/end/title matches for display and preserves the Aula location; it never merges persistent records or deduplicates by title alone.
 - SQLite uses `better-sqlite3` with Drizzle migrations. Generate schema changes with `pnpm db:generate`; apply them during worker/setup startup, never in page renders or API handlers. Use immediate native SQLite transactions for atomic multi-statement workflows.
 - `src/server/sources/types.ts` contains shared adapter/error contracts; `synthetic.ts` supplies demo data. `src/server/aula/normalize.ts` and `source.ts` provide strict live mappings/pagination; `services/live-sync.ts` wraps the protected companion session. `services/sync.ts` shares idempotent imports and coverage. Live extraction must stay empty until Phase 4.
 - `src/server/services/retention.ts` owns live expiry, related-record deletion, and WAL cleanup. Migration `0002_wakeful_mantis.sql` adds account/household/pause metadata, source expiry, and agenda/source links.
@@ -63,12 +68,12 @@ The user stopped all Orbit tasks/servers and wants changes before Phase 4. Leave
 - Use Node.js 24 and the pinned pnpm version. `pnpm dev` and `pnpm start` bind to loopback with telemetry disabled. See [README.md](./README.md#verification) for verification scope and limitations.
 - `pnpm aula:prepare` prepares the pinned companion plus the recorded patch; `pnpm aula:check` verifies its revision and exact diff. Never reset an unexpectedly modified checkout. `pnpm aula:test` runs fictional client/MCP/private-store tests, type-check, and affected-file lint with the locally installed pinned Bun; it does not authenticate. Keep `.orbit` out of Orbit's TypeScript/lint scans so the companion retains its own runtime and workspace dependencies.
 - `src/server/aula/session.ts` owns protected storage, host checks, environment isolation, locking, and cleanup. `src/worker/aula-session.ts` provides preflight, guarded interactive login, and credential-only disconnect. UI disconnect queues session cleanup and pauses live refresh via the worker. Reuse these guarded services; do not use the raw upstream CLI, default Keychain, or shared config directory.
-- `pnpm aula:validate --confirm-read-only-check` uses `src/server/aula/read-client.ts` and `validate.ts` for an explicitly authorized, content-free account check. Keep its five-tool allowlist, input validation, strict pagination, bounded requests, sanitized reports, and protected session lock. Never forward provider stderr, raw errors, names, IDs, or source content to chat/logs. Sample success does not enable live imports or establish full coverage/unread behavior.
+- `pnpm aula:validate --confirm-read-only-check` uses `src/server/aula/read-client.ts` and `validate.ts` for an explicitly authorized, content-free five-core-tool account check. The reader additionally allowlists only the approved EasyIQ SkolePortal tool. Preserve input validation, strict pagination, bounded requests, sanitized reports, and the protected session lock. Never forward provider stderr, raw errors, names, IDs, or source content to chat/logs. Sample success does not establish full coverage/unread behavior.
 
 ## Product and accessibility
 
 - Keep the interface and summaries in English; preserve original Danish source excerpts for verification.
-- Prioritize "What matters today?", "What is coming up?", and "What needs my review?" over dense controls or a large calendar grid.
+- Prioritize "What matters today?", "What is coming up?", and "What needs my review?" over dense controls. The approved School schedule is a limited weekly card layout, not a calendar editor; do not infer missing lesson details or expand source coverage.
 - Use restrained color, clear typography, generous spacing, subtle elevation, and mobile-first layouts. Prefer semantic native controls; use accessible headless primitives only where needed.
 - Meet WCAG 2.1 AA: keyboard operation, visible focus, meaningful headings and labels, appropriate contrast, non-color status cues, reduced motion, accessible dynamic updates, and 200% zoom/reflow. Prefer 44px interaction targets.
 - After UI work, report which accessibility checks were actually performed; do not claim compliance based only on using a component library.

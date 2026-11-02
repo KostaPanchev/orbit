@@ -11,11 +11,11 @@ export const profileDataSchema = z.object({
     profileId: id,
     children: z.array(z.object({
       id, name,
-      institutionProfile: z.object({ institutionName: z.string().optional() }).optional(),
+      institutionProfile: z.object({ institutionName: z.string().optional(), institutionCode: z.string().regex(/^[A-Za-z0-9_-]{1,50}$/).optional() }).optional(),
     })).min(1),
   })).length(1),
 });
-export interface LiveProfile { accountScope: string; household: Household; profileIds: number[] }
+export interface LiveProfile { accountScope: string; household: Household; profileIds: number[]; schools: { childId: number; institutionCode: string }[] }
 export function normalizeProfile(raw: unknown): LiveProfile {
   const { profiles: [profile] } = profileDataSchema.parse(raw);
   const household: Household = { household: { name: "Household", institution: "Audience not specified by the source", initial: "H" } };
@@ -25,6 +25,7 @@ export function normalizeProfile(raw: unknown): LiveProfile {
   return {
     accountScope: `aula-${createHash("sha256").update(String(profile.profileId)).digest("hex")}`,
     household, profileIds: [...new Set(profile.children.map((child) => child.id))],
+    schools: profile.children.flatMap((child) => child.institutionProfile?.institutionCode ? [{ childId: child.id, institutionCode: child.institutionProfile.institutionCode }] : []),
   };
 }
 const postSchema = z.object({

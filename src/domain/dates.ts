@@ -15,6 +15,16 @@ export function addDays(date: string, days: number) {
   value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
+export function startOfWeek(date: string) {
+  const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return addDays(date, -((weekday + 6) % 7));
+}
+export function isoWeek(date: string) {
+  const thursday = new Date(`${addDays(startOfWeek(date), 3)}T12:00:00Z`);
+  const year = thursday.getUTCFullYear();
+  const week = Math.ceil(((thursday.getTime() - Date.parse(`${year}-01-01T12:00:00Z`)) / 86400_000 + 1) / 7);
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
 export function normalizeTimestamp(value: string) {
   const normalized = value.replace(" ", "T").replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
   z.iso.datetime({ offset: true }).parse(normalized);

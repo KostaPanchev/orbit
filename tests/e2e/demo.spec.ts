@@ -73,7 +73,7 @@ test("revision approval replaces one entry and keeps the user's edited title", a
   await expect(entry).toHaveCount(1);
   await expect(entry).toContainText("Fri, 13 November");
   await expect(entry).toContainText("16:30");
-  await expect(page.getByRole("article")).toHaveCount(4);
+  await expect(page.getByRole("article")).toHaveCount(1);
 });
 
 test("unresolved dates cannot be scheduled without explicit confirmation", async ({ page }) => {
@@ -98,7 +98,11 @@ test("child filter persists and reset restores all original fixtures", async ({ 
   await expect(page.getByRole("heading", { name: "A quick reply before the trip" })).toHaveCount(0);
   await page.getByRole("link", { name: "Upcoming", exact: true }).click();
   await expect(page.getByRole("radio", { name: "Alex", exact: true })).toBeChecked();
-  await expect(page.getByRole("article")).toHaveCount(2);
+  await expect(page.getByRole("article")).toHaveCount(1);
+  await page.getByRole("link", { name: "School schedule", exact: true }).click();
+  await expect(page.getByRole("radio", { name: "Alex", exact: true })).toBeChecked();
+  await expect(page.getByRole("article", { name: "Kindergarten photo day" })).toBeVisible();
+  await expect(page.getByRole("article", { name: "Lantern walk + raincoats" })).toHaveCount(0);
   await page.getByRole("link", { name: /^Review/ }).click();
   await page.getByRole("article", { name: "Autumn gathering", exact: true }).getByRole("button", { name: "Dismiss" }).click();
   await page.getByLabel("Demo scenario").selectOption("busy");
@@ -161,7 +165,7 @@ test("worker scenarios disclose failures and retain data and original brief time
 });
 
 test("core pages, source dialog and editor pass automated WCAG AA checks", async ({ page }) => {
-  for (const route of ["/", "/upcoming", "/review", "/settings"]) {
+  for (const route of ["/", "/upcoming", "/school-schedule", "/review", "/settings"]) {
     await page.goto(route);
     await expect(page.locator("h1")).toHaveCount(1);
     const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
@@ -177,7 +181,7 @@ test("core pages, source dialog and editor pass automated WCAG AA checks", async
 
 test("320px reflow and 200% zoom retain the primary workflows", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
-  for (const route of ["/", "/upcoming", "/review", "/settings"]) {
+  for (const route of ["/", "/upcoming", "/school-schedule", "/review", "/settings"]) {
     await page.goto(route);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }

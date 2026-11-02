@@ -11,6 +11,11 @@ const toolInputs = {
   "aula.posts.list": z.object({ index: z.number().int().nonnegative(), limit: z.number().int().min(1).max(50), onlyUnread: z.literal(false) }).strict(),
   "aula.messages.list_threads": z.object({ page: z.number().int().nonnegative() }).strict(),
   "aula.messages.get_thread": z.object({ threadId: id, page: z.number().int().nonnegative() }).strict(),
+  "aula.ugeplan.easyiq_skoleportal": z.object({
+    childIds: z.array(id).length(1),
+    institutionCodes: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,50}$/)).length(1),
+    isoWeek: z.string().regex(/^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/),
+  }).strict(),
   "aula.calendar.events": z.union([
     z.object({ profileIds: z.array(id).min(1), range: z.literal("this_week") }).strict(),
     z.object({ profileIds: z.array(id).min(1), start: z.string().max(40), end: z.string().max(40) }).strict().refine((value) => {
@@ -22,9 +27,9 @@ const toolInputs = {
   ]),
 };
 export type AulaReadTool = keyof typeof toolInputs;
-export type ReadFailure = "denied-tool" | "invalid-input" | "timeout" | "transport" | "provider" | "response-shape" | "incomplete" | "sensitive" | "limit" | "profile-selection" | "read-state-changed" | "reconnect" | "rate-limited";
+export type ReadFailure = "denied-tool" | "invalid-input" | "timeout" | "transport" | "provider" | "response-shape" | "incomplete" | "sensitive" | "limit" | "profile-selection" | "read-state-changed" | "reconnect" | "rate-limited" | "unsupported-source";
 export class AulaReadError extends Error {
-  constructor(public readonly code: ReadFailure) { super(code); }
+  constructor(public readonly code: ReadFailure, public readonly detail?: string) { super(code); }
 }
 export interface AulaReader {
   read(tool: AulaReadTool, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
@@ -41,6 +46,9 @@ export function decodeReadResult(result: unknown): unknown {
   if (!parsed.success) throw new AulaReadError("response-shape");
   if (parsed.data.isError) {
     const text = parsed.data.content[0].text;
+    if (/SkolePortal child unavailable/.test(text)) throw new AulaReadError("unsupported-source");
+    const shape = /SkolePortal invalid response(?: \((auth|events|start|end|subject|className|title|html)\))?/.exec(text);
+    if (shape) throw new AulaReadError("response-shape", shape[1]);
     if (/\bstatus[: ]+(401|403)\b/.test(text) || /\binvalid_grant\b|\bNo stored tokens\b/.test(text)) throw new AulaReadError("reconnect");
     if (/\bstatus[: ]+429\b/.test(text)) throw new AulaReadError("rate-limited");
     if (/Invalid or incomplete (threads|messages|posts) page/.test(text)) throw new AulaReadError("incomplete");

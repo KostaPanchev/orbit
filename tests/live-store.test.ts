@@ -11,9 +11,10 @@ import { ensureDataset, getSnapshot, mutate } from "@/server/services/organizer"
 import { importRecord, synchronize } from "@/server/services/sync";
 import { deleteLiveData, pruneLiveData } from "@/server/services/retention";
 import { normalizeEvent } from "@/server/aula/normalize";
+import { normalizeSchoolWeek } from "@/server/aula/school-plan";
 import { SourceError, type SourceAdapter, type Summarizer } from "@/server/sources/types";
 import { acquireLease, requestScheduledRefresh } from "@/worker/runner";
-import { fictionalEvent, liveProfile, liveRecords, LIVE_NOW } from "./live-fixtures";
+import { fictionalEvent, fictionalSchoolWeek, liveProfile, liveRecords, LIVE_NOW } from "./live-fixtures";
 
 const dataset = "live-aula";
 const owner = "fictional-live-worker";
@@ -56,6 +57,39 @@ it("persists separate live previews/calendar facts without fictional briefs or s
   db.$client.close();
   db = openDatabase(path);
   expect(snapshot().previews).toEqual(first.previews);
+});
+
+it("replaces whole school weeks atomically, retains failed weeks, and keeps Overview unchanged", async () => {
+  const raw = fictionalSchoolWeek();
+  const week = normalizeSchoolWeek(raw, liveProfile, 10, "2026-11-02");
+  await synchronize(db, dataset, owner, adapter([...liveRecords(), week]), noAI);
+  expect(snapshot().schoolPlan).toHaveLength(1);
+  expect(snapshot().agenda).toHaveLength(1);
+  expect(snapshot().previews).toHaveLength(2);
+  expect(snapshot().schoolPlan[0].notes).toContain("Læs kapitel 2.");
+  raw.events[0].html = "<p>Changed fictional assignment.</p>";
+  await synchronize(db, dataset, owner, adapter([...liveRecords(), normalizeSchoolWeek(raw, liveProfile, 10, "2026-11-02")]), noAI);
+  expect(snapshot().schoolPlan).toHaveLength(1);
+  expect(snapshot().schoolPlan[0].notes).toContain("Changed fictional assignment.");
+  await synchronize(db, dataset, owner, {
+    page: async (kind) => kind === "Weekly plan"
+      ? { items: [], complete: true, nextCursor: null, issues: ["unavailable"] }
+      : adapter(liveRecords()).page(kind, null, new AbortController().signal),
+  }, noAI);
+  expect(snapshot().schoolPlan).toHaveLength(1);
+  expect(snapshot().coverage.find((item) => item.kind === "Weekly plan")?.complete).toBe(false);
+  await synchronize(db, dataset, owner, adapter([...liveRecords(), normalizeSchoolWeek({ ...raw, events: [] }, liveProfile, 10, "2026-11-02")]), noAI);
+  expect(snapshot().schoolPlan).toEqual([]);
+  expect(snapshot().agenda).toHaveLength(1);
+});
+
+it("expires and deletes weekly lesson text and links with their source record", () => {
+  importRecord(db, dataset, normalizeSchoolWeek(fictionalSchoolWeek(), liveProfile, 10, "2026-11-02"), noAI, owner);
+  const expiresAt = db.select().from(sources).get()!.expiresAt!;
+  vi.setSystemTime(expiresAt);
+  expect(snapshot().schoolPlan).toEqual([]);
+  pruneLiveData(db, dataset);
+  expect(db.select().from(sources).all()).toEqual([]);
 });
 
 it("does not extend retention when the same source is reimported", () => {

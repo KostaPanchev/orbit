@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { type AgendaEntry, type EventDetails, type Candidate } from "@/domain/model";
-import { addDays } from "@/domain/dates";
+import { addDays, startOfWeek } from "@/domain/dates";
 import { useOrganizer } from "./organizer-provider";
-import { eventInWindow, formatDate, formatSourceTime, matchesChild, suggestionDetails } from "@/domain/presentation";
+import { eventInWindow, formatDate, formatSourceTime, matchesChild, scheduleWeek, schoolScheduleEntries, suggestionDetails } from "@/domain/presentation";
 import { ChildLabel } from "./child-label";
 import { Dialog } from "./dialog";
 import { Icon } from "./icon";
 import { SourceButton } from "./source-button";
+import { SourceLinks } from "./source-links";
 
 function useItems() {
   const { state } = useOrganizer();
@@ -66,12 +67,12 @@ function LiveToday() {
           </article>
         </li>)}</ul> : <EmptyState title="No source previews for this selection">Check coverage below. Empty or excluded results do not mean there is nothing to follow up in Aula.</EmptyState>}
         {visible < previews.length && <button className="panel-link" onClick={() => setVisible((value) => value + 12)}>Show more source previews<Icon name="arrow" /></button>}
-        <div className="brief-footnote"><Icon name="source" /><p>At most 100 recent sources are listed. Attachments, weekly plans, sensitive content, and unread message bodies are not imported.</p></div>
+        <div className="brief-footnote"><Icon name="source" /><p>At most 100 recent sources are listed. Attachments, other weekly-plan providers, sensitive content, and unread message bodies are not imported. EasyIQ lesson content is in School schedule.</p></div>
       </section>
       <section className="panel next-panel" aria-labelledby="next-heading">
         <div className="panel-heading"><div><p className="eyebrow">The next 30 days</p><h2 id="next-heading">On the horizon</h2></div></div>
         {agenda.length ? <div className="agenda-list">{agenda.slice(0, 5).map((entry) => <EventCard key={entry.id} entry={entry} />)}</div> : <EmptyState title="No calendar items available">Only checked structured calendar data can appear here. See coverage for missing or incomplete sources.</EmptyState>}
-        <Link className="panel-link" href="/upcoming">See the next 30 days<Icon name="arrow" /></Link>
+        <Link className="panel-link" href="/school-schedule">See the school schedule<Icon name="arrow" /></Link>
       </section>
     </div>}
   </>;
@@ -95,7 +96,8 @@ export function TodayView() {
         <section className="panel next-panel" aria-labelledby="next-heading">
           <div className="panel-heading"><div><p className="eyebrow">Make a little room</p><h2 id="next-heading">On the horizon</h2></div></div>
           {agenda.length ? <div className="agenda-list">{agenda.slice(0, 3).map((entry) => <EventCard key={entry.id} entry={entry} />)}</div> : <EmptyState title="Room to breathe">No agenda items for this selection in the next 30 demo days.</EmptyState>}
-          <Link className="panel-link" href="/upcoming">See the next 30 days<Icon name="arrow" /></Link>
+          <Link className="panel-link" href="/upcoming">See approved upcoming events<Icon name="arrow" /></Link>
+          <Link className="panel-link" href="/school-schedule">See the school schedule<Icon name="arrow" /></Link>
         </section>
       </div>
       <section className="review-teaser" aria-labelledby="review-heading">
@@ -109,14 +111,76 @@ export function TodayView() {
 
 export function UpcomingView() {
   const { state, agenda, pending } = useItems();
+  const approved = agenda.filter((entry) => entry.origin === "Approved suggestion");
   return <>
     <PageHeading eyebrow="A little space to plan" title="Coming up." description={state.mode === "live" ? `${formatDate(state.today)} - ${formatDate(addDays(state.windowEnd, -1))} · the next 30 days. Times are in Europe/Copenhagen.` : "2 November - 1 December 2026 · the next 30 demo days. Times are in Europe/Copenhagen."} />
-    {!state.agenda.length && state.job ? <LoadingState /> : <section className="panel" aria-labelledby="agenda-heading">
-      <div className="panel-heading"><h2 id="agenda-heading">Your Orbit agenda</h2><span className="pill">{agenda.length} {agenda.length === 1 ? "item" : "items"}</span></div>
-      <p className="panel-description">{state.mode === "live" ? "Structured facts supplied by Aula, not extracted by AI. Complete calendar snapshots reconcile changes and cancellations. No external calendar is connected." : "Structured calendar facts and your approved suggestions. No external calendar is connected."}</p>
-      {agenda.length ? <div className="agenda-list full-agenda">{agenda.map((entry) => <EventCard key={entry.id} entry={entry} />)}</div> : <EmptyState title="No upcoming items">There are no agenda items for this child filter and 30-day window. This is not a claim about excluded or unchecked sources.</EmptyState>}
-      <Link href="/review" className="panel-link">{state.mode === "live" ? "AI suggestions are not enabled" : `${pending.length} suggestions still in review`}<Icon name="arrow" /></Link>
+    {state.mode === "live" ? <section className="panel" aria-labelledby="upcoming-empty-heading">
+      <div className="panel-heading"><h2 id="upcoming-empty-heading">No upcoming events yet</h2><span className="pill">AI not enabled</span></div>
+      <p className="panel-description">This space is reserved for events from AI-generated suggestions, after your review. AI suggestions are not enabled yet. Imported calendar events are in School schedule; this empty view is not an all-clear for Aula.</p>
+      <Link href="/school-schedule" className="panel-link">See the school schedule<Icon name="arrow" /></Link>
+    </section> : !state.agenda.length && state.job ? <LoadingState /> : <section className="panel" aria-labelledby="agenda-heading">
+      <div className="panel-heading"><h2 id="agenda-heading">Your Orbit agenda</h2><span className="pill">{approved.length} {approved.length === 1 ? "item" : "items"}</span></div>
+      <p className="panel-description">Your approved fictional suggestions. Structured calendar fixtures are in School schedule. No external calendar is connected.</p>
+      {approved.length ? <div className="agenda-list full-agenda">{approved.map((entry) => <EventCard key={entry.id} entry={entry} />)}</div> : <EmptyState title="No upcoming items">There are no approved suggestions for this child filter and 30-day window. This is not a claim about excluded or unchecked sources.</EmptyState>}
+      <Link href="/review" className="panel-link">{pending.length} suggestions still in review<Icon name="arrow" /></Link>
     </section>}
+  </>;
+}
+
+function SchoolDay({ day }: { day: ReturnType<typeof scheduleWeek>[number] }) {
+  const { state } = useOrganizer();
+  return <section className={`schedule-day${day.date === state.today ? " current-day" : ""}`} aria-labelledby={`day-${day.date}`}>
+    <h3 id={`day-${day.date}`}><time dateTime={day.date}>{formatDate(day.date)}</time>{day.date === state.today && <> <span className="pill">Today</span></>}</h3>
+    {!day.available ? <p className="schedule-empty">Outside the available date window</p> : day.entries.length ? <ul className="schedule-events">{day.entries.map((entry) => {
+      const lastDay = entry.endDate && entry.allDay ? addDays(entry.endDate, -1) : entry.endDate;
+      const spansDates = lastDay && lastDay > entry.date;
+      return <li key={entry.id}><article className="schedule-card" aria-label={entry.title} id={`schedule-${day.date}-${entry.id}`}>
+        <ChildLabel child={entry.child} institution />
+        <h4 lang={state.mode === "live" ? "da" : undefined}>{entry.title}</h4>
+        {entry.className && <p className="muted">{entry.className}</p>}
+        <p className="schedule-time">
+          <time dateTime={`${entry.date}${entry.time && !entry.allDay ? `T${entry.time}` : ""}`}>{spansDates && `${formatDate(entry.date, true)} · `}{entry.allDay ? "All day" : entry.time || "Date only · no time specified"}</time>
+          {lastDay && spansDates ? <> to <time dateTime={`${lastDay}${entry.endTime && !entry.allDay ? `T${entry.endTime}` : ""}`}>{formatDate(lastDay, true)}{entry.endTime && !entry.allDay && ` · ${entry.endTime}`}</time></> : entry.endTime && !entry.allDay && <> – <time dateTime={`${entry.endDate ?? entry.date}T${entry.endTime}`}>{entry.endTime}</time></>}
+        </p>
+        {entry.location && <p className="muted">{entry.location}</p>}
+        {entry.notes && <p className="lesson-notes" lang="da">{entry.notes}</p>}
+        <SourceLinks source={entry.source} />
+        <span className="origin-label">{entry.source.kind === "Weekly plan" ? "EasyIQ SkolePortal" : state.mode === "live" ? "Structured Aula calendar" : "Structured calendar · synthetic"}</span>
+        <SourceButton source={entry.source} />
+      </article></li>;
+    })}</ul> : <p className="schedule-empty">No imported events for this selection</p>}
+  </section>;
+}
+
+export function SchoolScheduleView() {
+  const { state, agenda } = useItems();
+  const currentWeek = startOfWeek(state.today);
+  const lastWeek = startOfWeek(addDays(state.windowEnd, -1));
+  const [selectedWeek, setSelectedWeek] = useState(currentWeek);
+  const week = selectedWeek < currentWeek ? currentWeek : selectedWeek > lastWeek ? lastWeek : selectedWeek;
+  const weekEnd = addDays(week, 6);
+  const lessons = state.schoolPlan.filter((entry) => matchesChild(entry, state.child));
+  const days = scheduleWeek(schoolScheduleEntries(agenda, lessons), week, state.today, state.windowEnd);
+  const weekend = days.slice(5);
+  const loading = !state.schoolPlan.length && !state.agenda.some((entry) => entry.origin === "Structured calendar") && Boolean(state.job);
+  return <>
+    <PageHeading eyebrow="The school week, at a glance" title="School schedule" description={state.mode === "live" ? "Lesson content and resources from EasyIQ SkolePortal, alongside Aula calendar events. Original text is preserved; no AI is used." : "School and kindergarten calendar fixtures, grouped by day. No live provider or AI is used."} />
+    {state.mode === "live" && !state.coverage.find((item) => item.kind === "Weekly plan")?.complete && <p className="notice warning schedule-coverage" role="status">EasyIQ lesson coverage is incomplete or has not been checked. Saved lesson content remains visible; missing notes do not mean nothing was assigned. See Local settings for coverage.</p>}
+    <section className="panel schedule-panel" aria-labelledby="schedule-week-heading">
+      <div className="panel-heading">
+        <div><p className="eyebrow">Europe/Copenhagen</p><h2 id="schedule-week-heading" aria-live="polite" aria-atomic="true">{formatDate(week)} {week.slice(0, 4)} – {formatDate(weekEnd)} {weekEnd.slice(0, 4)}</h2></div>
+        <div className="week-controls" role="group" aria-label="Choose schedule week">
+          <button className="button secondary" disabled={week <= currentWeek} onClick={() => setSelectedWeek(addDays(week, -7))}>Previous week</button>
+          <button className="button secondary" onClick={() => setSelectedWeek(currentWeek)}>This week</button>
+          <button className="button secondary" disabled={week >= lastWeek} onClick={() => setSelectedWeek(addDays(week, 7))}>Next week</button>
+        </div>
+      </div>
+      <p className="panel-description">Available dates: {formatDate(state.today)} – {formatDate(addDays(state.windowEnd, -1))}. Empty days mean no imported events for this selection, not that excluded or unchecked sources are clear. See coverage for missing, stale, or incomplete data.</p>
+      {loading ? <p className="schedule-loading" role="status" aria-busy="true">Loading imported calendar events. No AI processing is enabled.</p> : <>
+        <div className="schedule-grid">{days.slice(0, 5).map((day) => <SchoolDay key={day.date} day={day} />)}</div>
+        {weekend.some((day) => day.entries.length > 0) && <section className="schedule-weekend" aria-labelledby="weekend-heading"><h2 id="weekend-heading">Weekend</h2><div className="schedule-grid weekend-grid">{weekend.map((day) => <SchoolDay key={day.date} day={day} />)}</div></section>}
+      </>}
+    </section>
   </>;
 }
 
@@ -236,17 +300,17 @@ function LiveSettings() {
       <section className="panel" aria-labelledby="coverage-heading">
         <div className="panel-heading"><h2 id="coverage-heading">Source coverage</h2><span className="pill">Aula · read-only</span></div>
         <dl className="coverage-list">{state.coverage.map((item) => <div key={item.kind}>
-          <dt>{item.kind === "Calendar" ? "Calendar events" : `${item.kind}s`}</dt>
+          <dt>{item.kind === "Weekly plan" ? "EasyIQ SkolePortal lessons" : item.kind === "Calendar" ? "Calendar events" : `${item.kind}s`}</dt>
           <dd>{item.complete ? "Checked within the import window" : `Incomplete · ${item.error ?? "not checked"}`}<br />
             {item.pages} pages checked · {item.items} retained items<br />Last success: {item.lastSuccess ? formatSourceTime(item.lastSuccess) : "Never"}
             {item.exclusions?.map((notice) => <p key={notice}>{notice}</p>)}
           </dd>
         </div>)}
-          <div><dt>Attachments, weekly plans, sensitive content</dt><dd>Not fetched</dd></div>
+          <div><dt>Attachments, other weekly-plan providers, sensitive content</dt><dd>Not fetched</dd></div>
           <div><dt>Unread message bodies</dt><dd>Not fetched · title previews only</dd></div>
           <div><dt>AI summaries & suggestions</dt><dd>Not enabled</dd></div>
         </dl>
-        <p className="panel-description">Calendar: the next 30 days. Posts/messages: at most 90 days. Missing sources must still be checked in Aula.</p>
+        <p className="panel-description">Calendar and EasyIQ SkolePortal: the next 30 dates (weekly provider requests include the intersecting weeks). Posts/messages: at most 90 days. Missing sources must still be checked in Aula.</p>
       </section>
       <section className="panel" aria-labelledby="privacy-heading">
         <div className="panel-heading"><h2 id="privacy-heading">Your data stays local</h2></div>

@@ -4,6 +4,7 @@ import { eventInWindow } from "../../domain/presentation";
 import { LIVE_RETENTION_MS, type SourceKind, type SourceRecord } from "../../domain/model";
 import { SourceError, type SourceAdapter, type SourcePage } from "../sources/types";
 import { AulaReadError, type AulaReader, type AulaReadTool } from "./read-client";
+import { SchoolPlanSource } from "./school-plan";
 import {
   cancellationSchema, messagePageSchema, normalizeEvent, normalizePost, normalizeThread, normalizeThreadPreview,
   threadPageSchema, type LiveMessage, type LiveProfile,
@@ -16,7 +17,11 @@ export class AulaSource implements SourceAdapter {
   private cache: z.infer<typeof threadPageSchema> | undefined;
   private readonly threadsSeen = new Set<number>();
   private readonly postsSeen = new Set<string>();
-  constructor(private readonly reader: AulaReader, readonly profile: LiveProfile, private readonly now = Date.now(), private readonly stop?: AbortSignal) {}
+  private readonly schoolPlans: SchoolPlanSource;
+  constructor(private readonly reader: AulaReader, readonly profile: LiveProfile, private readonly now = Date.now(), private readonly stop?: AbortSignal) {
+    const window = liveWindow(new Date(now));
+    this.schoolPlans = new SchoolPlanSource(reader, profile, window.today, window.windowEnd);
+  }
   private async read(tool: AulaReadTool, args: Record<string, unknown>, signal: AbortSignal) {
     this.calls++;
     try { return await this.reader.read(tool, args, signal); }
@@ -31,8 +36,8 @@ export class AulaSource implements SourceAdapter {
     this.calls = 0;
     if (this.stop?.aborted) throw new SourceError("interrupted");
     try {
-      const result = kind === "Post" ? await this.posts(cursor, signal) : kind === "Calendar" ? await this.calendar(cursor, signal) : await this.messages(cursor, signal);
-      return { ...result, pagesRead: this.calls };
+      const result = kind === "Weekly plan" ? await this.schoolPlans.page(cursor, signal) : kind === "Post" ? await this.posts(cursor, signal) : kind === "Calendar" ? await this.calendar(cursor, signal) : await this.messages(cursor, signal);
+      return { ...result, pagesRead: result.pagesRead ?? this.calls };
     } catch (error) {
       if (error instanceof z.ZodError) throw new SourceError("invalid-data");
       throw error;

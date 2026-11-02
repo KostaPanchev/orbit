@@ -14,6 +14,8 @@ const affectedFiles = [
   "packages/aula-client/src/aula-client.ts",
   "packages/aula-client/src/aula-types.ts",
   "packages/aula-client/src/aula-client.test.ts",
+  "packages/aula-client/src/integrations/easyiq-skoleportal.ts",
+  "packages/aula-client/src/integrations/integrations.test.ts",
   "packages/mcp-server/src/tools.ts",
   "packages/mcp-server/src/tools.test.ts",
   "packages/aula-auth/src/token-store.ts",
@@ -94,6 +96,7 @@ function main() {
     assertBunRuntime();
     execFileSync(bunExecutable, [
       "test", "--no-env-file", "packages/aula-client/src/aula-client.test.ts",
+      "packages/aula-client/src/integrations/integrations.test.ts",
       "packages/mcp-server/src/tools.test.ts", "apps/cli/src/commands/tokens.test.ts",
     ], { cwd: companion, stdio: "inherit", env: {
       NODE_ENV: "test",

@@ -10,6 +10,19 @@ export const children = {
   alex: { name: "Alex", institution: "Birch Kindergarten", initial: "A" },
 } as const;
 export const sourceKinds = ["Message", "Post", "Calendar"] as const;
+export const liveSourceKinds = [...sourceKinds, "Weekly plan"] as const;
+export const lessonLinkSchema = z.object({
+  label: z.string().min(1).max(500),
+  url: z.url().max(2000).refine((value) => {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password &&
+      !/(^|[.\-])(localhost|local|internal)$/.test(url.hostname) &&
+      !/^(?:\d{1,3}\.){3}\d{1,3}$|^\[/.test(url.hostname) &&
+      !/(?:token|session|login|auth|redirect|password|secret|jwt)/i.test(url.pathname) &&
+      !/(?:token|session|login|auth|password|secret|jwt)/i.test(url.hash) &&
+      ![...url.searchParams.keys()].some((key) => /token|session|login|auth|password|secret|code|key|sig/i.test(key));
+  }),
+});
 export const scenarioSchema = z.enum(["normal", "busy", "empty", "loading", "partial", "stale", "error", "disconnected", "reconnect", "ai-unavailable"]);
 export type Scenario = z.infer<typeof scenarioSchema>;
 export const scenarios: Record<Scenario, { label: string }> = {
@@ -22,10 +35,11 @@ export const childSchema = z.string().regex(/^(emma|alex|household|aula-\d+)$/);
 export type ChildId = z.infer<typeof childSchema>;
 export type ChildFilter = ChildId | "all";
 export const sourceSchema = z.object({
-  id: z.string().min(1), kind: z.enum(sourceKinds), title: z.string().min(1),
+  id: z.string().min(1), kind: z.enum(liveSourceKinds), title: z.string().min(1),
   author: z.string().min(1), timestamp: z.iso.datetime({ offset: true }),
   excerpt: z.string().min(1), attachment: z.string().optional(),
   notice: z.string().optional(), timestampLabel: z.enum(["Published", "Latest message", "Event time"]).optional(),
+  links: z.array(lessonLinkSchema).max(100).optional(),
   messages: z.array(z.object({
     id: z.string().min(1), timestamp: z.iso.datetime({ offset: true }),
     author: z.string().min(1).max(500), excerpt: z.string().max(100_000),
@@ -54,6 +68,7 @@ export const agendaSchema = eventDetailsSchema.extend({
   id: z.string().min(1), child: childSchema, source: sourceSchema,
   origin: z.enum(["Structured calendar", "Approved suggestion"]),
   endDate: z.iso.date().optional(), endTime: z.string().optional(), allDay: z.boolean().optional(),
+  notes: z.string().max(100_000).optional(), className: z.string().max(500).optional(),
 });
 export type AgendaEntry = z.infer<typeof agendaSchema>;
 export const briefItemSchema = z.object({
@@ -66,6 +81,7 @@ export const sourceRecordSchema = z.object({
   upstreamId: z.string().min(1), accountScope: z.string().min(1),
   child: childSchema, source: sourceSchema,
   structuredEvent: agendaSchema.optional(),
+  schoolWeek: z.object({ start: z.iso.date(), entries: z.array(agendaSchema).max(1000) }).optional(),
   retainUntil: z.iso.datetime({ offset: true }).optional(),
 });
 export type SourceRecord = z.infer<typeof sourceRecordSchema>;
@@ -76,7 +92,7 @@ export type Extraction = z.infer<typeof extractionSchema>;
 export const errorCodeSchema = z.enum(["unavailable", "timeout", "incomplete", "disconnected", "reconnect", "invalid-data", "summary-unavailable", "interrupted", "rate-limited"]);
 export type SyncErrorCode = z.infer<typeof errorCodeSchema>;
 export const coverageSchema = z.object({
-  kind: z.enum(sourceKinds), pages: z.number(), items: z.number(), complete: z.boolean(),
+  kind: z.enum(liveSourceKinds), pages: z.number(), items: z.number(), complete: z.boolean(),
   error: errorCodeSchema.nullable(), checkedAt: z.string().nullable(), lastSuccess: z.string().nullable(),
   exclusions: z.array(z.string()).optional(),
 });
@@ -91,6 +107,7 @@ export const snapshotSchema = z.object({
   today: z.iso.date(), windowEnd: z.iso.date(), previews: z.array(previewSchema),
   paused: z.boolean(), connected: z.boolean(),
   dataset: z.string(), scenario: scenarioSchema, agenda: z.array(agendaSchema),
+  schoolPlan: z.array(agendaSchema).default([]),
   suggestions: z.array(candidateSchema), brief: z.array(briefItemSchema),
   decisions: z.record(z.string(), z.enum(["approved", "dismissed"])),
   lastSuccess: z.string().nullable(), briefAt: z.string().nullable(),

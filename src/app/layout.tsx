@@ -10,7 +10,7 @@ import { DomainError } from "@/domain/model";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Today · Orbit", template: "%s · Orbit" },
+  title: { default: "Overview · Orbit", template: "%s · Orbit" },
   description: "A calm local school and kindergarten organizer. Read-only source previews and calendar events, without AI.",
   robots: { index: false, follow: false },
 };

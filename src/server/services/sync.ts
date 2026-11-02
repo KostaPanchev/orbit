@@ -1,7 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { initialAgenda } from "../../demo/fixtures";
-import { DomainError, REFRESH_INTERVAL, LIVE_RETENTION_MS, candidateSchema, extractionSchema, sourceKinds, sourceRecordSchema, type Coverage, type Extraction, type SourceRecord } from "../../domain/model";
+import { DomainError, REFRESH_INTERVAL, LIVE_RETENTION_MS, candidateSchema, extractionSchema, sourceKinds, sourceRecordSchema, type Coverage, type Extraction, type SourceKind, type SourceRecord } from "../../domain/model";
 import { liveWindow } from "../../domain/dates";
 import { eventInWindow } from "../../domain/presentation";
 import type { OrbitDb } from "../db/client";
@@ -34,6 +34,8 @@ export function importRecord(db: OrbitDb, dataset: string, raw: SourceRecord, su
   const revision = hash(record);
   const old = db.select().from(sources).where(and(eq(sources.dataset, dataset), eq(sources.key, key))).get();
   const data = requireDataset(db, dataset);
+  if (record.schoolWeek && (record.source.kind !== "Weekly plan" || record.structuredEvent || record.schoolWeek.entries.some((entry) =>
+    entry.child !== record.child || entry.source.kind !== "Weekly plan" || entry.origin !== "Structured calendar"))) throw new SourceError("invalid-data");
   const firstSeenAt = old?.firstSeenAt ?? Date.now();
   const expiresAt = data.kind === "live" ? Math.min(firstSeenAt + LIVE_RETENTION_MS, Date.parse(record.retainUntil ?? "")) : null;
   if (data.kind === "live" && (summarize instanceof SyntheticSummarizer || expiresAt === null || !Number.isFinite(expiresAt) || expiresAt <= Date.now() ||
@@ -98,7 +100,7 @@ export function seedHistory(db: OrbitDb, dataset: string, owner: string) {
   }).immediate();
 }
 
-async function fetchPage(adapter: SourceAdapter, kind: typeof sourceKinds[number], cursor: string | null): Promise<SourcePage> {
+async function fetchPage(adapter: SourceAdapter, kind: SourceKind, cursor: string | null): Promise<SourcePage> {
   for (let attempt = 0; ; attempt++) {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -130,7 +132,7 @@ export async function synchronize(db: OrbitDb, dataset: string, owner: string, a
     db.insert(syncRuns).values({ id, dataset, startedAt: new Date().toISOString(), coverage }).run();
   }).immediate();
   let summaryFailed = false;
-  const kinds = data.kind === "live" ? ["Calendar", "Post", "Message"] as const : sourceKinds;
+  const kinds = data.kind === "live" ? ["Calendar", "Weekly plan", "Post", "Message"] as const : sourceKinds;
   for (const kind of kinds) {
     const outcome = coverage.find((item) => item.kind === kind)!;
     try {
@@ -174,7 +176,7 @@ export async function synchronize(db: OrbitDb, dataset: string, owner: string, a
         if (data.kind === "live" && kind === "Calendar") {
           const window = liveWindow();
           const removed = db.select().from(sources).where(eq(sources.dataset, dataset)).all().filter((row) =>
-            row.record.structuredEvent && eventInWindow(row.record.structuredEvent, window.today, window.windowEnd) && !importedKeys.has(row.key));
+            row.record.source.kind === "Calendar" && row.record.structuredEvent && eventInWindow(row.record.structuredEvent, window.today, window.windowEnd) && !importedKeys.has(row.key));
           db.$client.transaction(() => {
             assertLease(db, owner);
             removeLiveSources(db, dataset, removed.map((row) => row.key));

@@ -1,7 +1,7 @@
 import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { DomainError, REFRESH_INTERVAL, LIVE_RETENTION_MS, DEMO_DATE, WINDOW_END, children, mutationSchema, snapshotSchema, sourceKinds, type Coverage, type Mutation } from "../../domain/model";
+import { DomainError, REFRESH_INTERVAL, LIVE_RETENTION_MS, DEMO_DATE, WINDOW_END, children, mutationSchema, snapshotSchema, sourceKinds, liveSourceKinds, type Coverage, type Mutation } from "../../domain/model";
 import { liveWindow } from "../../domain/dates";
 import { eventInWindow } from "../../domain/presentation";
 import type { OrbitDb } from "../db/client";
@@ -27,7 +27,8 @@ export function ensureDataset(db: OrbitDb, dataset: string) {
 
 export function latestCoverage(db: OrbitDb, dataset: string): Coverage[] {
   const latest = db.select().from(syncRuns).where(eq(syncRuns.dataset, dataset)).orderBy(desc(syncRuns.startedAt), desc(sql`rowid`)).get();
-  return sourceKinds.map((kind) => latest?.coverage.find((item) => item.kind === kind)
+  const kinds = requireDataset(db, dataset).kind === "live" ? liveSourceKinds : sourceKinds;
+  return kinds.map((kind) => latest?.coverage.find((item) => item.kind === kind)
     ?? { kind, pages: 0, items: 0, complete: false, error: null, checkedAt: null, lastSuccess: null });
 }
 
@@ -48,10 +49,11 @@ export function getSnapshot(db: OrbitDb, dataset: string, now = Date.now(), conn
     mode: data.kind, ...window, paused: data.paused,
     connected: live ? connected ?? (existsSync(".orbit/aula-auth/tokens.json") && existsSync(".orbit/aula-auth/.key")) : false,
     household: live ? data.household && data.householdAt !== null && data.householdAt + LIVE_RETENTION_MS > now ? data.household : {} : children,
-    previews: live ? retained.filter((row) => row.record.source.kind !== "Calendar")
+    previews: live ? retained.filter((row) => row.record.source.kind === "Message" || row.record.source.kind === "Post")
       .toSorted((a, b) => b.record.source.timestamp.localeCompare(a.record.source.timestamp)).slice(0, 100)
       .map((row) => ({ id: row.key, child: row.record.child, source: row.record.source })) : [],
     dataset, scenario: data.scenario, agenda: saved.map((row) => row.payload).filter((entry) => !live || eventInWindow(entry, window.today, window.windowEnd)),
+    schoolPlan: retained.flatMap((row) => row.record.schoolWeek?.entries ?? []).filter((entry) => eventInWindow(entry, window.today, window.windowEnd)),
     suggestions: current.map((row) => ({
       ...row.payload,
       editedFields: saved.find((entry) => entry.candidateId === row.id)?.editedFields ?? [],

@@ -41,6 +41,20 @@ function fixtureReader() {
 
 afterEach(() => vi.restoreAllMocks());
 
+it("allowlists only the approved weekly-plan provider with bounded child/week inputs", async () => {
+  const client = new Client({ name: "fixture", version: "1" });
+  const call = vi.spyOn(client, "callTool").mockResolvedValue(text({ childId: 10, complete: true, events: [] }));
+  const reader = new AllowlistedAulaReader(client);
+  await reader.read("aula.ugeplan.easyiq_skoleportal", { childIds: [10], institutionCodes: ["G10"], isoWeek: "2026-W45" }, signal());
+  expect(call).toHaveBeenCalledOnce();
+  for (const args of [
+    { childIds: [10, 20], institutionCodes: ["G10"], isoWeek: "2026-W45" },
+    { childIds: [10], institutionCodes: ["G10"], isoWeek: "2026-W99" },
+    { childIds: [10], institutionCodes: ["G10"], isoWeek: "2026-W45", raw: true },
+  ]) await expect(reader.read("aula.ugeplan.easyiq_skoleportal", args, signal())).rejects.toMatchObject({ code: "invalid-input" });
+  await expect(reader.read("aula.ugeplan.easyiq", {}, signal())).rejects.toMatchObject({ code: "denied-tool" });
+  expect(call).toHaveBeenCalledOnce();
+});
 it("follows short post pages, more than 20 threads, and sampled thread pages without leaking content", async () => {
   const reader = fixtureReader();
   const report = await validateAula(reader, signal());

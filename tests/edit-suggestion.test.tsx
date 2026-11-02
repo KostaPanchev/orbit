@@ -20,7 +20,7 @@ function renderEditor(id: string) {
   const snapshot: Snapshot = {
     mode: "synthetic", household: children, today: DEMO_DATE, windowEnd: WINDOW_END, previews: [], connected: false, paused: false,
     dataset: "synthetic-ui", scenario: "normal", agenda: initialAgenda, suggestions: [suggestion],
-    brief: [], decisions: {}, lastSuccess: null, briefAt: null, coverage: [],
+    schoolPlan: [], brief: [], decisions: {}, lastSuccess: null, briefAt: null, coverage: [],
     syncError: null, job: null, workerOnline: true, stale: false,
   };
   vi.stubGlobal("fetch", vi.fn(async (_url, init: RequestInit) => {

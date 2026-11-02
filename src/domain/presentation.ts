@@ -1,4 +1,5 @@
 import { DEMO_DATE, WINDOW_END, type AgendaEntry, type Candidate, type ChildFilter, type EventDetails, type Snapshot } from "./model";
+import { addDays } from "./dates";
 
 export function inWindow(date: string, start = DEMO_DATE, end = WINDOW_END): boolean {
   return date >= start && date < end;
@@ -9,6 +10,38 @@ export function eventInWindow(entry: AgendaEntry, start = DEMO_DATE, end = WINDO
 }
 export function matchesChild(item: { child: string }, child: ChildFilter): boolean {
   return child === "all" || item.child === child || item.child === "household";
+}
+export function schoolScheduleEntries(calendar: AgendaEntry[], lessons: AgendaEntry[]) {
+  const key = (entry: AgendaEntry) => JSON.stringify([entry.child, entry.date, entry.time, entry.endDate ?? entry.date, entry.endTime ?? "", entry.title.trim().toLocaleLowerCase("da")]);
+  const counts = (entries: AgendaEntry[]) => {
+    const result = new Map<string, number>();
+    for (const entry of entries) result.set(key(entry), (result.get(key(entry)) ?? 0) + 1);
+    return result;
+  };
+  const structured = calendar.filter((entry) => entry.origin === "Structured calendar" && entry.source.kind === "Calendar");
+  const calendarCounts = counts(structured);
+  const lessonCounts = counts(lessons);
+  const matched = (entry: AgendaEntry) => Boolean(entry.time) && calendarCounts.get(key(entry)) === 1 && lessonCounts.get(key(entry)) === 1;
+  return [
+    ...calendar.filter((entry) => entry.origin !== "Structured calendar" || entry.source.kind !== "Calendar" || !matched(entry)),
+    ...lessons.map((entry) => matched(entry) ? { ...entry, location: structured.find((item) => key(item) === key(entry))!.location } : entry),
+  ];
+}
+export function scheduleWeek(agenda: AgendaEntry[], weekStart: string, windowStart: string, windowEnd: string) {
+  const entries = agenda.filter((entry) => entry.origin === "Structured calendar").toSorted((a, b) =>
+    (a.allDay ? "" : a.time).localeCompare(b.allDay ? "" : b.time) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(weekStart, index);
+    const available = inWindow(date, windowStart, windowEnd);
+    return {
+      date, available,
+      entries: available ? entries.filter((entry) => {
+        if (entry.date === date) return true;
+        if (entry.date > date || !entry.endDate) return false;
+        return entry.endDate > date || !entry.allDay && entry.endDate === date && entry.endTime !== "00:00";
+      }) : [],
+    };
+  });
 }
 export function suggestionDetails(suggestion: Candidate, agenda: AgendaEntry[]): EventDetails {
   const previous = agenda.find((item) => item.id === suggestion.replacesId);
@@ -39,5 +72,5 @@ export function syncStatus(state: Snapshot) {
   if (state.scenario === "stale") return { title: "This overview may be out of date", detail: "The synthetic stale-data scenario failed to refresh. Previous successful data is retained.", warning: true };
   if (state.syncError) return { title: "Some information could be missing", detail: "Refresh did not complete successfully. Previous successful data is retained; check per-source coverage below.", warning: true };
   if (state.stale) return { title: "This overview may be out of date", detail: "The last successful refresh is overdue. Previously saved information is retained.", warning: true };
-  return { title: live ? "Core Aula sources checked" : "Synthetic sources checked", detail: live ? "Real source previews and calendar facts. AI is disabled. Attachments, weekly plans, sensitive content, and unread message bodies are excluded." : state.scenario === "empty" ? "No new items in the checked response. Existing sources and decisions are retained; absence is not a deletion." : "Fictional messages, posts, and calendar checked. Attachments, weekly plans, and sensitive content are not covered.", warning: false };
+  return { title: live ? "Core Aula sources checked" : "Synthetic sources checked", detail: live ? "Aula sources and EasyIQ SkolePortal lesson content. AI is disabled. Attachments, other weekly-plan providers, sensitive content, and unread message bodies are excluded." : state.scenario === "empty" ? "No new items in the checked response. Existing sources and decisions are retained; absence is not a deletion." : "Fictional messages, posts, and calendar checked. Attachments, weekly plans, and sensitive content are not covered.", warning: false };
 }

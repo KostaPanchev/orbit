@@ -675,6 +675,234 @@ index 1284d12..e45318a 100644
  }
  
  // --------------------------------------------------------------------------
+diff --git a/packages/aula-client/src/integrations/easyiq-skoleportal.ts b/packages/aula-client/src/integrations/easyiq-skoleportal.ts
+index 6e9cd7b..0236dad 100644
+--- a/packages/aula-client/src/integrations/easyiq-skoleportal.ts
++++ b/packages/aula-client/src/integrations/easyiq-skoleportal.ts
+@@ -48,7 +48,7 @@ const SP_USER_AGENT =
+   '(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36';
+ 
+ interface SpAuthResponse {
+-  loginId?: string;
++  loginId?: string | number;
+   /** userId of the child the response is for — not always the one asked about. */
+   child?: string | number;
+   childName?: string;
+@@ -60,6 +60,7 @@ interface SpEvent {
+   StartTime?: string;
+   StartTimeISO?: string;
+   EndTime?: string;
++  EndTimeISO?: string;
+   CoursesDisplay?: string;
+   ActivitiesDisplay?: string;
+   ChapterTitle?: string;
+@@ -86,6 +87,67 @@ export class EasyIqSkoleportalClient {
+     this.widgetId = opts.widgetId ?? SP_WIDGET_ID;
+   }
+ 
++  async getSchoolSchedule(ctx: IntegrationContext) {
++    const childId = ctx.childIds[0];
++    const userId = ctx.childUserIds?.[0];
++    if (ctx.childIds.length !== 1 || !childId || !userId || ctx.institutionCodes.length !== 1) {
++      throw new Error('SkolePortal invalid input');
++    }
++    try {
++      const auth = await this.authenticate(ctx, userId);
++      if (auth.child == null || String(auth.child).toLowerCase() !== userId.toLowerCase()) {
++        throw new Error('SkolePortal child unavailable');
++      }
++      if (
++        !(typeof auth.loginId === 'string' && auth.loginId.length > 0) &&
++        !(
++          typeof auth.loginId === 'number' &&
++          Number.isSafeInteger(auth.loginId) &&
++          auth.loginId > 0
++        )
++      ) {
++        throw new Error('SkolePortal invalid response (auth)');
++      }
++      const date = `${isoDate(isoWeekToMonday(ctx.isoWeek))}T00:00:00.000Z`;
++      const events = await this.fetchEvents(ctx, userId, String(auth.loginId), date);
++      if (events.length > 1000) throw new Error('SkolePortal invalid response (events)');
++      const text = (value: unknown, field: string) => {
++        if (value == null) return '';
++        if (typeof value !== 'string' || value.length > 100_000) {
++          throw new Error(`SkolePortal invalid response (${field})`);
++        }
++        return value;
++      };
++      return {
++        childId,
++        complete: true,
++        events: events.map((event) => {
++          if (!event || typeof event !== 'object' || Array.isArray(event)) {
++            throw new Error('SkolePortal invalid response (events)');
++          }
++          return {
++            start: text(event.StartTimeISO ?? event.StartTime, 'start'),
++            end: text(event.EndTimeISO ?? event.EndTime, 'end'),
++            subject: text(event.CoursesDisplay, 'subject'),
++            className: text(event.ActivitiesDisplay, 'className'),
++            title: text(event.ChapterTitle, 'title'),
++            html: text(event.Description, 'html'),
++          };
++        }),
++      };
++    } catch (error) {
++      if (
++        error instanceof Error &&
++        /^(SkolePortal child unavailable|SkolePortal invalid response(?: \((auth|events|start|end|subject|className|title|html)\))?)$/.test(
++          error.message,
++        )
++      ) {
++        throw error;
++      }
++      throw new Error('SkolePortal schedule unavailable');
++    }
++  }
++
+   async getWeekPlan(ctx: IntegrationContext): Promise<NormalisedWeekPlan> {
+     const monday = isoWeekToMonday(ctx.isoWeek);
+     // SkolePortal expects the date as `YYYY-MM-DDT00:00:00.000Z`, NOT plain
+@@ -133,7 +195,7 @@ export class EasyIqSkoleportalClient {
+     if (!auth.loginId) {
+       throw new Error('SkolePortal authentication response missing loginId');
+     }
+-    const events = await this.fetchEvents(ctx, childUserId, auth.loginId, dateParam);
++    const events = await this.fetchEvents(ctx, childUserId, String(auth.loginId), dateParam);
+     const childName = decodeHtmlEntities(auth.childName ?? '');
+     const items: NormalisedWeekPlanItem[] = [];
+     for (const ev of events) {
+@@ -238,7 +300,8 @@ export class EasyIqSkoleportalClient {
+         );
+       }
+       const parsed = JSON.parse(res.body) as unknown;
+-      return Array.isArray(parsed) ? (parsed as SpEvent[]) : [];
++      if (!Array.isArray(parsed)) throw new Error('SkolePortal invalid response (events)');
++      return parsed as SpEvent[];
+     });
+   }
+ }
+diff --git a/packages/aula-client/src/integrations/integrations.test.ts b/packages/aula-client/src/integrations/integrations.test.ts
+index 93c8c1c..27cc6aa 100644
+--- a/packages/aula-client/src/integrations/integrations.test.ts
++++ b/packages/aula-client/src/integrations/integrations.test.ts
+@@ -567,6 +567,115 @@ describe('SystematicClient.getReminders', () => {
+ // EasyIQ SkolePortal (widget 0128)
+ // --------------------------------------------------------------------------
+ 
++describe('EasyIqSkoleportalClient.getSchoolSchedule', () => {
++  test('accepts a numeric login ID without exposing it in the returned schedule', async () => {
++    const http = new FakeHttp().enqueue(
++      { status: 200, body: JSON.stringify({ child: 'u1', loginId: 12345 }) },
++      { status: 200, body: '[]' },
++    );
++    const client = new EasyIqSkoleportalClient({
++      http: http.asHttpClient(),
++      widgets: fakeWidgets(),
++    });
++    const result = await client.getSchoolSchedule(
++      ctx({ childIds: [1], childUserIds: ['u1'], institutionCodes: ['G1'] }),
++    );
++    expect(result).toEqual({ childId: 1, complete: true, events: [] });
++    expect(http.requested[1]?.url).toContain('loginId=12345');
++  });
++  test('returns only selected event fields, never provider session metadata', async () => {
++    const http = new FakeHttp().enqueue(
++      {
++        status: 200,
++        body: JSON.stringify({ child: 'u1', loginId: 'PRIVATE_LOGIN', childName: 'PRIVATE_NAME' }),
++      },
++      {
++        status: 200,
++        body: JSON.stringify([
++          {
++            StartTimeISO: '2026-05-04T08:00:00+02:00',
++            EndTime: '2026/05/04 09:30',
++            CoursesDisplay: 'Dansk',
++            ActivitiesDisplay: '4D',
++            ChapterTitle: 'Læsning',
++            Description: '<p>Læs kapitel 2.</p>',
++            secret: 'PRIVATE_EXTRA',
++          },
++        ]),
++      },
++    );
++    const client = new EasyIqSkoleportalClient({
++      http: http.asHttpClient(),
++      widgets: fakeWidgets(),
++    });
++    const result = await client.getSchoolSchedule(
++      ctx({ childIds: [1], childUserIds: ['u1'], institutionCodes: ['G1'] }),
++    );
++    expect(result).toEqual({
++      childId: 1,
++      complete: true,
++      events: [
++        {
++          start: '2026-05-04T08:00:00+02:00',
++          end: '2026/05/04 09:30',
++          subject: 'Dansk',
++          className: '4D',
++          title: 'Læsning',
++          html: '<p>Læs kapitel 2.</p>',
++        },
++      ],
++    });
++    expect(JSON.stringify(result)).not.toContain('PRIVATE');
++  });
++  test('rejects missing or different child identity before fetching events', async () => {
++    for (const child of [undefined, 'sibling']) {
++      const http = new FakeHttp().enqueue({
++        status: 200,
++        body: JSON.stringify({ child, loginId: 'PRIVATE' }),
++      });
++      const client = new EasyIqSkoleportalClient({
++        http: http.asHttpClient(),
++        widgets: fakeWidgets(),
++      });
++      await expect(
++        client.getSchoolSchedule(
++          ctx({ childIds: [1], childUserIds: ['u1'], institutionCodes: ['G1'] }),
++        ),
++      ).rejects.toThrow('SkolePortal child unavailable');
++      expect(http.requested).toHaveLength(1);
++    }
++  });
++  test('does not turn malformed responses into a successful empty schedule', async () => {
++    for (const data of [{}, [null], [{ Description: 42 }]]) {
++      const http = new FakeHttp().enqueue(
++        { status: 200, body: JSON.stringify({ child: 'u1', loginId: 'PRIVATE' }) },
++        { status: 200, body: JSON.stringify(data) },
++      );
++      const client = new EasyIqSkoleportalClient({
++        http: http.asHttpClient(),
++        widgets: fakeWidgets(),
++      });
++      await expect(
++        client.getSchoolSchedule(
++          ctx({ childIds: [1], childUserIds: ['u1'], institutionCodes: ['G1'] }),
++        ),
++      ).rejects.toThrow('SkolePortal invalid response');
++    }
++  });
++  test('redacts remote error payloads instead of returning them as warnings', async () => {
++    const http = new FakeHttp().enqueue({ status: 500, body: 'PRIVATE_ERROR_PAYLOAD' });
++    const client = new EasyIqSkoleportalClient({
++      http: http.asHttpClient(),
++      widgets: fakeWidgets(),
++    });
++    await expect(
++      client.getSchoolSchedule(
++        ctx({ childIds: [1], childUserIds: ['u1'], institutionCodes: ['G1'] }),
++      ),
++    ).rejects.toThrow('SkolePortal schedule unavailable');
++  });
++});
++
+ describe('EasyIqSkoleportalClient.getWeekPlan', () => {
+   test('per-child auth + events + Danish-entity decode', async () => {
+     const http = new FakeHttp().enqueue(
 diff --git a/packages/mcp-server/src/tools.test.ts b/packages/mcp-server/src/tools.test.ts
 index 6abd77c..468c22c 100644
 --- a/packages/mcp-server/src/tools.test.ts
@@ -808,7 +1036,7 @@ index 6abd77c..468c22c 100644
 +  });
 +});
 diff --git a/packages/mcp-server/src/tools.ts b/packages/mcp-server/src/tools.ts
-index 572405d..e2cfa7a 100644
+index 572405d..30310ec 100644
 --- a/packages/mcp-server/src/tools.ts
 +++ b/packages/mcp-server/src/tools.ts
 @@ -709,12 +709,10 @@ export function registerTools(server: McpServer, context: AulaContext): void {
@@ -826,6 +1054,15 @@ index 572405d..e2cfa7a 100644
          posts: rawPosts.map(slimPost),
        });
      },
+@@ -876,7 +874,7 @@ export function registerTools(server: McpServer, context: AulaContext): void {
+     },
+     async (args) => {
+       const sp = await context.getEasyIqSkoleportal();
+-      return jsonContent(await sp.getWeekPlan(await buildIntegrationCtx(args)));
++      return jsonContent(await sp.getSchoolSchedule(await buildIntegrationCtx(args)));
+     },
+   );
+ 
 @@ -963,7 +961,9 @@ export function registerTools(server: McpServer, context: AulaContext): void {
      {
        title: 'Read a single thread',

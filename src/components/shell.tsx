@@ -9,8 +9,9 @@ import { formatDate, formatSourceTime, matchesChild, syncStatus } from "@/domain
 import { Icon } from "./icon";
 
 const navigation = [
-  { href: "/", label: "Today", icon: "today" },
+  { href: "/", label: "Overview", icon: "today" },
   { href: "/upcoming", label: "Upcoming", icon: "upcoming" },
+  { href: "/school-schedule", label: "School schedule", icon: "schedule" },
   { href: "/review", label: "Review", icon: "review" },
   { href: "/settings", label: "Local settings", icon: "settings" },
 ] as const;
@@ -64,7 +65,7 @@ export function Shell({ children: content }: { children: ReactNode }) {
           <footer className="page-footer">
             <p><strong>{live ? "Real Aula data · read-only." : "Synthetic data only."}</strong> {live ? "90-day retention limit; cleanup runs while Orbit is active or on restart. No AI or external calendar is connected." : "Decisions are saved locally across reloads and restarts. No external calendar is connected."}</p>
             <div className="refresh-metadata"><span>{live ? "Last checked" : "Last successful synthetic refresh"}: {(live ? checkedAt : state.lastSuccess) ? formatSourceTime((live ? checkedAt : state.lastSuccess)!) : "Not yet completed"}</span><span>{live ? "AI summaries and suggestions: not enabled" : `Prewritten brief as of: ${state.briefAt ? formatSourceTime(state.briefAt) : "Not yet generated"}`}</span></div>
-            <p>Orbit supplements Aula. Attachments, weekly plans, and sensitive content are not covered.</p>
+            <p>Orbit supplements Aula. Attachments, {live ? "weekly-plan providers other than EasyIQ SkolePortal" : "weekly plans"}, and sensitive content are not covered.</p>
             {!live && <button className="text-link" disabled={busy || Boolean(state.job)} onClick={() => void mutate({ type: "reset" })}>Reset synthetic dataset</button>}
           </footer>
         </div>

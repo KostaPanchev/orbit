@@ -8,7 +8,9 @@ Phases 1 and 2 are implemented as a Next.js App Router/TypeScript frontend with 
 
 The user authorized Phase 3 safeguards, completed guarded login, approved local account validation, and requested a preview with real data before Phase 4. The live worker imported authorized data and the loopback dashboard served it without AI. Automatic credential renewal was observed. This is a working preview, not complete Phase 3 acceptance: the newest source edits still require final verification and deliberate source exclusions remain.
 
-**Current handoff (2 November 2026):** the user stopped all Orbit tasks/servers and intends to request changes before Phase 4. Data and credentials were preserved. Do not restart services, fetch live content, or advance phases just to resume context. See [the handoff and validation boundary](#phase-3-handoff-and-remaining-checks). Phases 4-5 remain unstarted and require separate authorization.
+**Earlier handoff (2 November 2026):** the user stopped all Orbit tasks/servers before requesting UI changes ahead of Phase 4. Data and credentials were preserved. Do not restart services, fetch live content, or advance phases just to resume context. See [the handoff and validation boundary](#phase-3-handoff-and-remaining-checks). Phases 4-5 remain unstarted and require separate authorization.
+
+**Subsequent UI refinement:** the requested Overview/Upcoming/School schedule separation is implemented and verified with fictional fixtures. See [the refinement](#pre-phase-4-ui-refinement). The earlier live-validation boundary remains; no live refresh or Phase 4 work was performed.
 
 Build a dashboard first, not a chatbot or general-purpose autonomous agent. Use a controlled ingestion and summarization workflow so the interface remains useful even when Aula or AI is unavailable.
 
@@ -33,7 +35,7 @@ Phase 1 must not require a database, backend integration, background worker, Aul
 - English interface and English summaries; preserve original Danish source excerpts for verification.
 - Start with a UI-only prototype using dummy data. Add persistence, Aula access, AI, and deployment in separate phases.
 - Initial coverage: core Aula messages, posts, and calendar events.
-- Weekly-plan providers and document/image attachments are deferred. Clearly disclose unprocessed sources.
+- Weekly-plan providers other than the subsequently approved read-only EasyIQ SkolePortal source, and document/image attachments, are deferred. Clearly disclose unprocessed sources.
 - Main features: daily school/kindergarten brief, upcoming events and deadlines, and event suggestions requiring approval.
 - In Phase 1, approval changes only the in-memory demo agenda. From Phase 2, approval saves an item persistently inside Orbit. Google Calendar, Apple Calendar, calendar export/subscription, and external calendar writes are deferred.
 - Phase 1 simulates refresh. From Phase 2, refresh every 30 minutes while the local worker is running, with a manual refresh option. Update the daily brief when relevant information changes once AI is enabled.
@@ -42,10 +44,11 @@ Phase 1 must not require a database, backend integration, background worker, Aul
 - Current hosting choice: run Orbit on the user's existing Mac, with the application, SQLite database, and worker on that machine. This avoids a hosting subscription; always-on availability is not required.
 - From Phase 2, refresh runs only while Orbit's local process and worker are running and the Mac is awake. Stopping the local process stops refresh; sleep suspends refresh. Closing a browser tab/window alone does not stop the local process or worker.
 - This local-hosting choice supersedes the earlier fully undecided hosting status. Remote access and any later production deployment remain unapproved; keep loopback-only access for now. The AI provider and processing location remain undecided. No cloud service or later phase is authorized by this decision.
+- Before Phase 4, rename Today to Overview without changing its content, reserve live Upcoming for future reviewed AI events, and move structured calendar events to School schedule. Preserve approved fictional suggestions in demo Upcoming. Use a weekly weekday-column layout based only on existing imported fields, with bounded week navigation and no new provider reads.
 
 ## Recommended product experience
 
-### Today
+### Overview
 
 The landing page answers three questions without requiring the user to open every message:
 
@@ -79,7 +82,7 @@ Display last successful refresh, brief generation time, and source coverage sepa
 - Quiet neutral surfaces, a restrained accent, strong typography, generous spacing, subtle elevation, and low visual noise.
 - Mobile-first responsive web UI; desktop layout can use a compact navigation rail and wider agenda.
 - Build with Tailwind CSS and native semantic elements; add headless accessible primitives only where necessary for dialogs, menus, or drawers.
-- No chatbot, large calendar grid, animation-heavy presentation, or PWA/offline caching of family data in the first release.
+- No chatbot, full calendar editor, animation-heavy presentation, or PWA/offline caching of family data in the first release. The approved pre-Phase-4 School schedule uses a compact weekly card grid; this supersedes the earlier blanket avoidance of a calendar grid without adding calendar editing or new integrations.
 - Apply WCAG 2.1 AA: keyboard access, visible focus, meaningful headings and labels, contrast, non-color status cues, reduced motion, live status announcements, and 200% zoom/reflow. Prefer 44px interaction targets.
 
 ## Aula integration research and recommendation
@@ -153,7 +156,7 @@ Local worker
 
 ### Current code layout
 
-- `src/app/`: Today, Upcoming, Review, and connection/status settings routes.
+- `src/app/`: Overview, Upcoming, School schedule, Review, and connection/status settings routes.
 - `src/components/`: mode-aware shell/views, dynamic child filters, source dialogs, and accessibility primitives. `demo-views.tsx` currently contains both demo and live branches despite its historical filename.
 - `src/demo/`: fictional fixtures consumed only by the synthetic server adapter and fixture-history bootstrap. Phase 1's in-memory store has been replaced.
 - `src/domain/`: mode-aware DTOs, source/event schemas, review states, live date/window helpers, and presentation selectors.
@@ -349,7 +352,7 @@ Do not present synthetic summaries as summaries of live sources. Until Phase 4, 
 - The shared sync service uses stable account/source keys and content revisions. Structured calendar updates are idempotent; explicit cancellations and absence from complete relevant calendar snapshots can remove entries. Partial/invalid snapshots never justify absence-based deletion. It rejects cross-account/audience mixing and live demo/AI extraction.
 - Migration `0002_wakeful_mantis.sql` adds dataset account/household/pause metadata, source first-seen/expiry, and agenda/source links. Retention uses source time capped at 90 days since first persistence; thread records use the earliest retained message time. Reads filter expired sources/agenda; worker startup, pre-sync, and periodic cleanup remove expired related data with secure deletion/WAL truncation. No claim of offline physical deletion or forensic/backup erase is made.
 - Local settings provide queued disconnect and live-data deletion. UI disconnect removes local credentials and pauses refresh while preserving imports. Live-data deletion removes live records and pauses refresh while preserving the login and demo. The standalone credential-disconnect command does not change the dataset pause flag.
-- Today displays original source previews, Upcoming displays structured Aula events, Review explains that AI is disabled, and Settings discloses coverage/privacy controls. Real audiences replace hard-coded demo children; unattributed sources use the household label. Live mode has no fictional brief or suggestion output.
+- Overview (originally Today) displays original source previews. Following the pre-Phase-4 refinement, School schedule displays structured Aula events and Upcoming is intentionally empty until AI suggestions are enabled. Review explains that AI is disabled, and Settings discloses coverage/privacy controls. Real audiences replace hard-coded demo children; unattributed sources use the household label. Live mode has no fictional brief or suggestion output.
 - Page/API local-host and origin checks, same-origin JSON mutations, private no-store headers, and frame/referrer protections apply. They do not provide remote-user authentication. Live source content stays local and is not captured in browser screenshots or test artifacts.
 - A counts-only dry run verified the real 30-day calendar and source mappings and observed the protected token file being renewed. The running live preview then persisted and served real sources. A nullable attachment-metadata mismatch was fixed and tested; the subsequent message warnings reflected deliberate unread/sensitive exclusions, not normalization gaps. No real content, names, IDs, or credentials are recorded in this handoff.
 
@@ -379,6 +382,39 @@ The existing production build and earlier saved live records predate these final
 4. Demonstrate the revised preview, stop for feedback, and only then consider a separately requested Phase 4 with explicit provider/location/data-handling decisions. No Phase 4 dependency or AI processing is authorized by this handoff.
 
 **Phase 3 remains in progress, not complete.** The current blocker is final verification/refinement, not a missing initial MitID setup step.
+
+### Pre-Phase-4 UI refinement
+
+**Implemented and verified:** navigation now reads Overview, Upcoming, School schedule, Review, Local settings. The landing route and its source/brief/horizon/review content are preserved, with only necessary links changed.
+
+- Live Upcoming intentionally contains no event cards. Its empty state explains that AI suggestions are not enabled and points to School schedule; coverage warnings remain visible.
+- Demo Upcoming contains only approved suggestions, retaining approval/edit/dismiss/revision behavior and saved-entry anchors.
+- School schedule contains only structured calendar entries, grouped into Monday-start weeks within the existing 30-date window. Five weekday columns reflow at narrower widths, and matching weekend entries remain accessible. Child filters preserve household entries; kindergarten events are not dropped.
+- Week navigation is UI state only. It never requests ingestion, expands the available window, or alters persisted records. Boundary dates outside the imported window are not presented as successfully checked empty days.
+- Cards preserve supplied titles, dates/times, all-day status, audiences/institutions, locations, provenance, and source inspection. Overlapping events appear on applicable days with unique IDs; exclusive all-day ends and timed midnight ends are respected. Lesson notes, class codes, links, or subject colors from the reference image are not fabricated or newly imported.
+- No migration, dependency, connector behavior, stored data, approval policy, or AI provider changed. Existing user services were not restarted for this refinement.
+
+**Verification:** 33 focused Vitest domain/component/editor tests, lint, type-check, and production build passed. All 36 affected desktop/mobile Playwright tests passed with `--timeout 60000` for the existing multi-scenario journey. Coverage includes origin separation, week bounds, DST/date arithmetic, multi-day/weekend events, child filtering, preserved approvals/revisions/reloads, five-column layout, direct route titles, no week-navigation mutations, axe, keyboard/focus return, 320px reflow, and 200% zoom. All live-mode browser fixtures were fictional; no real household content was used in tests.
+
+An initial run exposed an adjacent-label spacing issue and an overbroad empty-state test selector; both were corrected. The existing multi-scenario browser journey also exceeded its default overall timeout once; it passed under the explicit 60-second budget without relaxing individual assertions. Test-worker lease expiry was respected before reruns.
+
+**Remaining boundary:** this validates the UI refinement, not final Phase 3 acceptance, live refresh/reconnect behavior, the earlier unverified server edits, or a full companion rerun. Demonstrate and gather feedback before any separately authorized Phase 4 work.
+
+### Approved EasyIQ SkolePortal lesson content
+
+The user's open Aula widget was identified as EasyIQ SkolePortal (0128), a separate weekly-plan source rather than a missing basic calendar description. The user explicitly approved adding it: "Go ahead as we need that part." This supersedes the earlier exclusion of this one provider; other providers, attachments, AI, and calendar writes remain out of scope.
+
+- Added the bounded read allowlist entry for `aula.ugeplan.easyiq_skoleportal`. The companion uses its existing protected widget authentication, verifies the returned child identity, and returns only the selected event fields. It rejects malformed/oversized results rather than substituting an empty success and sanitizes provider failures. A verified numeric login-ID response is supported without exposing login IDs or raw auth responses.
+- Added child/week source snapshots, per-source coverage, Copenhagen date/time validation, and offline HTML-to-text/resource-link extraction. Complete weeks replace one source record atomically; failed or invalid weeks retain old content. Snapshots share 90-day retention and live deletion. No migration or AI processor is introduced.
+- Weekly provider requests cover intersecting weeks; presentation remains limited to the exact 30-date window. Calendar and lesson reads precede posts/messages so a slow message scan does not starve the schedule.
+- School schedule displays original lesson text, class labels, resource links, and source evidence. Only unique exact child/date/start/end/title matches replace calendar cards for display, preserving their location. Persisted Aula events are untouched; ambiguous matches remain separate. Overview and Upcoming retain their existing content boundaries.
+- `parse5` is a production dependency for offline HTML parsing. No upstream HTML, script, frame, image, authentication link, or attachment is rendered/fetched. Resource links require user action, open separately, and do not send a referrer.
+
+**Verification:** 125 application tests, 185 companion tests, lint/type-check/build, and 40 desktop/mobile browser tests passed. Later ordering/link-policy changes also passed focused tests and a rebuild. Browser evidence is fictional and covers content, provenance, resource links, no external loads, retained failed-week content, keyboard focus, axe, and narrow reflow.
+
+An authorized, protected current-week read confirmed lesson text/resource links using counts-only output. One child's provider request failed; do not infer a licence state or turn that failure into an empty successful result. The loopback live preview was rebuilt/restarted on port 3001 and an authorized refresh persisted the provider snapshots. A local render check compared every rendered current-week note against imported text and confirmed exact equality, printing only counts and the boolean result; no source content or browser screenshot was retained.
+
+The current full automated run also covers the source/store edits marked unverified in the historical handoff. This does not certify full live coverage, remote revocation/reconnect, or physical sleep/resume. Provider coverage remains explicitly incomplete for the failed child, retained Aula data is preserved, and all AI outputs remain empty. Phase 3's comprehensive acceptance remains pending; Phase 4 is still unstarted.
 
 ### Phase 4: source-grounded AI briefs and suggestions
 
@@ -440,7 +476,7 @@ Phases 3 and 4 add, as each capability is introduced:
 
 ## Deliberately deferred
 
-Google/Apple calendar integrations and automatic calendar writes; notifications/email/push delivery; task assignment and chores; shopping/meal planning; weekly-plan providers; document OCR/attachment processing; multi-household support; general conversational agents; and a public multi-user service. Private deployment is Phase 5, not a Phase 1 prerequisite.
+Google/Apple calendar integrations and automatic calendar writes; notifications/email/push delivery; task assignment and chores; shopping/meal planning; weekly-plan providers other than the approved EasyIQ SkolePortal source; document OCR/attachment processing; multi-household support; general conversational agents; and a public multi-user service. Private deployment is Phase 5, not a Phase 1 prerequisite.
 
 The most useful next expansion is calendar integration with a dedicated calendar and explicit create/update/cancel reconciliation. Provider choice should be made before implementation; Google Calendar and Apple/iCloud should not be assumed to have identical integration requirements.
 

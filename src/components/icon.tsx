@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 const paths = {
   today: "M4 5h16v15H4z M8 3v4 M16 3v4 M4 10h16 M8 14h3v3H8z",
   upcoming: "M8 6h12 M8 12h12 M8 18h12 M3 6h1 M3 12h1 M3 18h1",
+  schedule: "M4 5h16v15H4z M8 3v4 M16 3v4 M4 10h16 M9 10v10 M15 10v10 M4 15h16",
   review: "M9 4h6v4H9z M9 6H5v15h14V6h-4 M9 15l2 2 4-5",
   settings: "M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6",
   arrow: "M5 12h14 M14 7l5 5-5 5",
