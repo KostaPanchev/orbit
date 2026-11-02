@@ -1,20 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { brief, initialAgenda, suggestions } from "../../demo/fixtures";
-import type { Extraction, Scenario, SourceKind, SourceRecord, SyncErrorCode } from "../../domain/model";
-
-export class SourceError extends Error {
-  constructor(public readonly code: SyncErrorCode) { super(code); }
-}
-export interface SourcePage { items: SourceRecord[]; nextCursor: string | null; complete: boolean }
-export interface SourceAdapter {
-  page(kind: SourceKind, cursor: string | null, signal: AbortSignal): Promise<SourcePage>;
-}
-export interface Summarizer {
-  summarize(record: SourceRecord): Extraction;
-}
-export function sourceKey(record: SourceRecord) {
-  return `${record.accountScope}:${record.source.kind}:${record.upstreamId}`;
-}
+import type { Extraction, Scenario, SourceKind, SourceRecord } from "../../domain/model";
+import { SourceError, type SourceAdapter, type SourcePage, type Summarizer } from "./types";
+export { SourceError, sourceKey, type SourceAdapter, type SourcePage, type Summarizer } from "./types";
 export function syntheticRecords(includeBusy = false): SourceRecord[] {
   const items = [...initialAgenda.filter((item) => item.origin === "Structured calendar"), ...suggestions.filter((item) => !item.busyOnly || includeBusy), ...brief.filter((item) => !item.busyOnly || includeBusy)];
   return [...new Map(items.map((item) => [item.source.id, {

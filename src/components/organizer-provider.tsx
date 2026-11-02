@@ -56,9 +56,11 @@ export function OrganizerProvider({ children, initialState }: { children: ReactN
     try {
       await request(action);
       if (action.type === "reset") { updateChild("all"); announce("Synthetic reset queued. Only this dataset will be reset."); }
-      else if (action.type === "approve") announce(`Saved to Orbit. ${inWindow(action.details.date) ? "" : "This date is outside the displayed 30-day window. "}No external calendar is connected.`);
+      else if (action.type === "approve") announce(`Saved to Orbit. ${inWindow(action.details.date, snapshot.today, snapshot.windowEnd) ? "" : "This date is outside the displayed 30-day window. "}No external calendar is connected.`);
       else if (action.type === "dismiss") announce("Suggestion dismissed. Your decision is saved to Orbit.");
-      else announce("Synthetic refresh queued for the local worker.");
+      else if (action.type === "delete-live") announce("Live-data deletion queued. Refresh will be paused.");
+      else if (action.type === "disconnect") announce("Disconnect queued. Imported data will be retained until expiry or deletion.");
+      else announce(snapshot.mode === "live" ? "Aula refresh queued for the local worker. AI remains disabled." : "Synthetic refresh queued for the local worker.");
       return true;
     } catch (error) {
       setError(error instanceof Error ? error.message : "The change could not be saved.");
@@ -67,9 +69,10 @@ export function OrganizerProvider({ children, initialState }: { children: ReactN
   };
   const setChild = (value: ChildFilter) => {
     updateChild(value);
-    announce(`Showing ${value === "all" ? "both children" : value === "emma" ? "Emma" : "Alex"}.`);
+    announce(`Showing ${value === "all" ? snapshot.mode === "live" ? "all children and household sources" : "both children" : snapshot.household[value]?.name ?? "the selected audience"}.`);
   };
-  return <OrganizerContext.Provider value={{ state: { ...snapshot, child, announcement }, busy, error: error || readError, setChild, mutate }}>{children}</OrganizerContext.Provider>;
+  const selectedChild = child === "all" || snapshot.household[child] ? child : "all";
+  return <OrganizerContext.Provider value={{ state: { ...snapshot, child: selectedChild, announcement }, busy, error: error || readError, setChild, mutate }}>{children}</OrganizerContext.Provider>;
 }
 export function useOrganizer() {
   const context = useContext(OrganizerContext);

@@ -199,6 +199,14 @@ blockquote { padding: 20px; background: #f4f6f0; border-left: 3px solid var(--ac
 .loading-panel p { margin-top: 14px; color: var(--muted); }
 .skeleton { height: 25px; background: #edf0e9; border-radius: 5px; margin-top: 28px; }
 .skeleton.short { width: 65%; }
+.live-source { min-width: 0; width: 100%; }
+.live-source h3, .source-preview, .event-content h3 { overflow-wrap: anywhere; }
+.source-preview { white-space: pre-line; }
+.filter, .child-label { max-width: 100%; overflow-wrap: anywhere; }
+.filter input, .child-dot { flex-shrink: 0; }
+.source-message { margin-top: 24px; }
+.source-message h3 { font-size: 13px; overflow-wrap: anywhere; }
+.source-message blockquote { white-space: pre-line; }
 
 @media (min-width: 1500px) {
   .page-content { padding-top: 30px; }
