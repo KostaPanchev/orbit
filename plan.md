@@ -4,7 +4,9 @@
 
 Reduce the mental load of following school and kindergarten information: explain what matters today, show upcoming events and deadlines, and turn relevant information into reviewable event suggestions.
 
-The repository is empty, with no application, dependencies, tests, or existing conventions to preserve. This is a greenfield Next.js application. Planning and research have not changed the repository, installed software, or accessed any family data.
+Phase 1 is implemented as a Next.js App Router/TypeScript frontend with Tailwind CSS, fictional fixtures, and shared in-memory state. Today, Upcoming, Review, source drawers, child filters, and demo settings are interactive. No family data, Aula account, AI provider, database, or external calendar has been accessed or enabled.
+
+The UI prototype and its automated acceptance checks are complete; the next step is user UX feedback. Phases 2-5 remain unstarted and require separate authorization.
 
 Build a dashboard first, not a chatbot or general-purpose autonomous agent. Use a controlled ingestion and summarization workflow so the interface remains useful even when Aula or AI is unavailable.
 
@@ -225,6 +227,15 @@ For a deployed daily service, an always-on worker is required. A laptop prototyp
 1. **Establishing the UI foundation** (`prototype-foundation`): scaffold Next.js/TypeScript, Tailwind, frontend checks, design tokens, and the accessible responsive shell.
 2. **Building the interactive demo** (`prototype-ui`): add fixtures and shared in-memory state; implement Today, Upcoming, Review, source details, child filters, and demo settings. Depends on `prototype-foundation`.
 3. **Validating and refining the UX** (`prototype-validation`): test primary interactions, responsive layout, keyboard access, zoom, and scenario states; document startup/reset behavior. Depends on `prototype-ui`.
+
+**Implementation status (2 November 2026):** all three Phase 1 todos are implemented and verified. Startup, reset behavior, fixture walkthrough, and validation commands are documented in [README.md](./README.md#getting-started).
+
+- Foundation: Next.js App Router, TypeScript, pnpm, custom Tailwind-styled components, local system fonts, semantic responsive shell, and frontend checks. Tailwind uses its standard PostCSS adapter; the generated Turbopack-specific adapter served stale CSS during rebuild validation and was replaced.
+- Demo: fictional Emma/Alex household, fixed 2 November 2026 clock, 30-day window ending 1 December, school/kindergarten filters, Danish source evidence, date-only events, unresolved-date confirmation, linked approval/revision flows, dismissals, and explicit reset. A revised lantern walk preserves the seeded user-edited title and replaces one agenda entry only after approval.
+- Scenarios: normal, busy, empty, loading, partial, stale, error, disconnected, reconnect required, and AI unavailable. Loading is deliberately paused for inspection. Scenario changes preserve in-memory decisions; empty hides fixture content. Simulated refresh preserves fixed fictional timestamps and the selected scenario and does not contact any service.
+- Verified: lint, type-check, production build, 17 unit/component tests, and 20 browser checks across desktop and mobile-emulated Chromium. Browser checks cover keyboard-only actions, focus return, navigation/reload/reset, filtering, source inspection, scenario states, absence of external requests/storage writes, 320px reflow, and 200% CSS zoom. Axe checks cover all views and dialogs; visual browser inspection supplements automation.
+- Remaining: user evaluation of the UX. No implementation blockers remain. Physical-device, other browser engines, and screen-reader checks are not claimed; automated accessibility checks do not establish full WCAG certification.
+- Next step: demonstrate and collect UX feedback. Do not start Phase 2 without a separate request.
 
 Use a fictional household with school and kindergarten information: a normal day, a busy day, an upcoming trip, a deadline, an ambiguous event time, a changed event, and an item with an unprocessed attachment. Include prewritten English summaries and fictional Danish source excerpts. No AI generates this content.
 
