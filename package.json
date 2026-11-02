@@ -6,6 +6,8 @@
     "dev": "tsx src/worker/local.ts dev",
     "build": "NEXT_TELEMETRY_DISABLED=1 next build",
     "start": "tsx src/worker/local.ts start",
+    "dev:live": "tsx src/worker/local.ts dev --live",
+    "start:live": "tsx src/worker/local.ts start --live",
     "db:setup": "tsx src/worker/setup.ts",
     "db:generate": "drizzle-kit generate",
     "worker": "tsx src/worker/main.ts",

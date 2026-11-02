@@ -42,7 +42,7 @@ async function main() {
       assertSessionFiles(paths);
       requireHostSafeguards(paths);
       console.log(JSON.stringify(report, null, 2));
-      console.log("Only counts/status were printed. No source records were saved; live imports remain disabled.");
+      console.log("Only counts/status were printed. This validation command did not save source records or start live synchronization.");
       if (report.outcome !== "sample-checks-passed") process.exitCode = 1;
     });
   } finally {

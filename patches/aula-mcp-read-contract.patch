@@ -676,7 +676,7 @@ index 1284d12..e45318a 100644
  
  // --------------------------------------------------------------------------
 diff --git a/packages/mcp-server/src/tools.test.ts b/packages/mcp-server/src/tools.test.ts
-index 6abd77c..9934032 100644
+index 6abd77c..468c22c 100644
 --- a/packages/mcp-server/src/tools.test.ts
 +++ b/packages/mcp-server/src/tools.test.ts
 @@ -1,5 +1,12 @@
@@ -693,7 +693,7 @@ index 6abd77c..9934032 100644
  import { registerTools, slimPost, validateSetTemplateArgs } from './tools.ts';
  
  describe('validateSetTemplateArgs', () => {
-@@ -259,3 +266,109 @@ describe('slimPost', () => {
+@@ -259,3 +266,113 @@ describe('slimPost', () => {
      expect(slim.attachments?.[0]?.name).toBe('ok.pdf');
    });
  });
@@ -766,14 +766,18 @@ index 6abd77c..9934032 100644
 +  ] as const) {
 +    test(`${name} preserves continuation through MCP serialization`, async () => {
 +      await withClient(async (client, http) => {
++        const item =
++          key === 'messages' ? { id: 1, text: { html: '<p>Fictional &amp; text</p>' } } : { id: 1 };
 +        http.enqueue(
 +          response({ profiles: [] }),
-+          response({ [key]: [{ id: 1 }], page: 0, moreMessagesExist: true }),
++          response({ [key]: [item], page: 0, moreMessagesExist: true }),
 +        );
 +        const result = await client.callTool({ name, arguments: args });
 +        expect(result.isError).not.toBe(true);
 +        const data = JSON.parse(textResult.parse(result).content[0].text);
 +        expect(data[key]).toHaveLength(1);
++        if (key === 'messages')
++          expect(data.messages[0].text).toEqual({ plain: 'Fictional & text' });
 +        expect(data[key === 'threads' ? 'hasMorePages' : 'moreMessagesExist']).toBe(true);
 +        expect(http.requested.every((request) => request.method === 'GET')).toBe(true);
 +      });
@@ -804,7 +808,7 @@ index 6abd77c..9934032 100644
 +  });
 +});
 diff --git a/packages/mcp-server/src/tools.ts b/packages/mcp-server/src/tools.ts
-index 572405d..eda5a00 100644
+index 572405d..e2cfa7a 100644
 --- a/packages/mcp-server/src/tools.ts
 +++ b/packages/mcp-server/src/tools.ts
 @@ -709,12 +709,10 @@ export function registerTools(server: McpServer, context: AulaContext): void {
@@ -833,3 +837,25 @@ index 572405d..eda5a00 100644
          'this tool returns an error code that means the user must MitID step-up to read it ' +
          '(currently a fresh `aula login` from the CLI).',
        inputSchema: {
+@@ -983,11 +983,16 @@ export function registerTools(server: McpServer, context: AulaContext): void {
+       // memoises after the first call, so this is a no-op once primed.
+       await context.getGuardianUserId();
+       try {
+-        return jsonContent(
+-          await client.getMessagesForThread(args.threadId, {
+-            ...(args.page !== undefined ? { page: args.page } : {}),
+-          }),
+-        );
++        const result = await client.getMessagesForThread(args.threadId, {
++          ...(args.page !== undefined ? { page: args.page } : {}),
++        });
++        return jsonContent({
++          ...result,
++          messages: result.messages.map((message) => ({
++            ...message,
++            text: { plain: message.text?.plain ?? htmlToText(message.text?.html ?? '') },
++          })),
++        });
+       } catch (e) {
+         if (e instanceof AulaStepUpRequiredError) {
+           return jsonContent({

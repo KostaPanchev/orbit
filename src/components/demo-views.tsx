@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { DEMO_DATE, type AgendaEntry, type EventDetails, type Candidate } from "@/domain/model";
+import { type AgendaEntry, type EventDetails, type Candidate } from "@/domain/model";
+import { addDays } from "@/domain/dates";
 import { useOrganizer } from "./organizer-provider";
-import { formatDate, formatSourceTime, inWindow, matchesChild, suggestionDetails } from "@/domain/presentation";
+import { eventInWindow, formatDate, formatSourceTime, matchesChild, suggestionDetails } from "@/domain/presentation";
 import { ChildLabel } from "./child-label";
 import { Dialog } from "./dialog";
 import { Icon } from "./icon";
@@ -13,7 +14,7 @@ import { SourceButton } from "./source-button";
 function useItems() {
   const { state } = useOrganizer();
   const pending = state.suggestions.filter((item) => !state.decisions[item.id] && matchesChild(item, state.child));
-  const agenda = state.agenda.filter((item) => inWindow(item.date) && matchesChild(item, state.child)).toSorted((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+  const agenda = state.agenda.filter((item) => eventInWindow(item, state.today, state.windowEnd) && matchesChild(item, state.child)).toSorted((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
   const points = state.brief.filter((item) => matchesChild(item, state.child));
   return { state, pending, agenda, points };
 }
@@ -27,25 +28,58 @@ function EmptyState({ title, children }: { title: string; children: React.ReactN
 }
 
 function LoadingState() {
-  return <section className="panel loading-panel" aria-busy="true" aria-label="Loading synthetic data"><h2>Getting the local overview ready</h2><p>The worker is importing fictional sources. No Aula or AI service is contacted.</p><div className="skeleton" /><div className="skeleton short" /><div className="skeleton" /></section>;
+  const live = useOrganizer().state.mode === "live";
+  return <section className="panel loading-panel" aria-busy="true" aria-label={live ? "Loading Aula data" : "Loading synthetic data"}><h2>Getting the local overview ready</h2><p>{live ? "The local worker is checking Aula. Original source previews and structured events will appear here; AI is disabled." : "The worker is importing fictional sources. No Aula or AI service is contacted."}</p><div className="skeleton" /><div className="skeleton short" /><div className="skeleton" /></section>;
 }
 
 function EventCard({ entry }: { entry: AgendaEntry }) {
+  const { state } = useOrganizer();
+  const lastDay = entry.endDate && entry.allDay ? addDays(entry.endDate, -1) : entry.endDate;
   return <article className="agenda-entry" aria-label={entry.title} id={`event-${entry.id}`}>
-    <div className="date-tile" aria-hidden="true"><span>{entry.date === DEMO_DATE ? "Today" : formatDate(entry.date, true).split(" ")[1]}</span><strong>{Number(entry.date.slice(8))}</strong></div>
+    <div className="date-tile" aria-hidden="true"><span>{entry.date === state.today ? "Today" : formatDate(entry.date, true).split(" ")[1]}</span><strong>{Number(entry.date.slice(8))}</strong></div>
     <div className="event-content">
       <ChildLabel child={entry.child} />
       <h3>{entry.title}</h3>
-      <p className="event-time"><time dateTime={`${entry.date}${entry.time ? `T${entry.time}` : ""}`}>{formatDate(entry.date)} · {entry.time || "Date only · no time specified"}</time></p>
+      <p className="event-time"><time dateTime={`${entry.date}${entry.time ? `T${entry.time}` : ""}`}>{formatDate(entry.date)} · {entry.allDay ? "All day" : entry.time || "Date only · no time specified"}</time>{lastDay && lastDay > entry.date && <> through {formatDate(lastDay)}</>}{entry.endTime && <> – {entry.endTime}</>}</p>
       {entry.location && <p className="muted">{entry.location}</p>}
-      <span className="origin-label">{entry.origin === "Structured calendar" ? "Structured calendar · synthetic" : "Saved to Orbit"}</span>
+      <span className="origin-label">{entry.origin === "Structured calendar" ? state.mode === "live" ? "Structured Aula calendar" : "Structured calendar · synthetic" : "Saved to Orbit"}</span>
       <SourceButton source={entry.source} />
     </div>
   </article>;
 }
 
+function LiveToday() {
+  const { state, agenda } = useItems();
+  const [visible, setVisible] = useState(12);
+  const previews = state.previews.filter((item) => matchesChild(item, state.child));
+  return <>
+    <PageHeading eyebrow="Original sources. A calmer overview." title="Your Aula, at a glance." description="Real posts, message previews, and calendar events. Original text is preserved; AI summaries and suggestions are not enabled." />
+    {!state.previews.length && !state.agenda.length && state.job ? <LoadingState /> : <div className="today-grid">
+      <section className="panel" aria-labelledby="sources-heading">
+        <div className="panel-heading"><div><p className="eyebrow">From school and kindergarten</p><h2 id="sources-heading">Source previews</h2></div><span className="pill">No AI summary</span></div>
+        <p className="panel-description">Latest retained posts and threads from the last 90 days. Household labels mean the source did not identify a single child.</p>
+        {previews.length ? <ul className="brief-list">{previews.slice(0, visible).map((item) => <li key={item.id}>
+          <article className="live-source"><ChildLabel child={item.child} /><h3 lang="da">{item.source.title}</h3>
+            <p className="source-preview" lang="da">{item.source.excerpt.slice(0, 320)}{item.source.excerpt.length > 320 ? "…" : ""}</p>
+            {item.source.notice && <p className="field-help">{item.source.notice}</p>}
+            <SourceButton source={item.source} />
+          </article>
+        </li>)}</ul> : <EmptyState title="No source previews for this selection">Check coverage below. Empty or excluded results do not mean there is nothing to follow up in Aula.</EmptyState>}
+        {visible < previews.length && <button className="panel-link" onClick={() => setVisible((value) => value + 12)}>Show more source previews<Icon name="arrow" /></button>}
+        <div className="brief-footnote"><Icon name="source" /><p>At most 100 recent sources are listed. Attachments, weekly plans, sensitive content, and unread message bodies are not imported.</p></div>
+      </section>
+      <section className="panel next-panel" aria-labelledby="next-heading">
+        <div className="panel-heading"><div><p className="eyebrow">The next 30 days</p><h2 id="next-heading">On the horizon</h2></div></div>
+        {agenda.length ? <div className="agenda-list">{agenda.slice(0, 5).map((entry) => <EventCard key={entry.id} entry={entry} />)}</div> : <EmptyState title="No calendar items available">Only checked structured calendar data can appear here. See coverage for missing or incomplete sources.</EmptyState>}
+        <Link className="panel-link" href="/upcoming">See the next 30 days<Icon name="arrow" /></Link>
+      </section>
+    </div>}
+  </>;
+}
+
 export function TodayView() {
   const { state, pending, agenda, points } = useItems();
+  if (state.mode === "live") return <LiveToday />;
   return <>
     <PageHeading eyebrow="Monday, made a little lighter" title="A little clarity for today." description="The important bits from school and kindergarten, all in one place." />
     {!state.lastSuccess && state.job ? <LoadingState /> : <>
@@ -76,12 +110,12 @@ export function TodayView() {
 export function UpcomingView() {
   const { state, agenda, pending } = useItems();
   return <>
-    <PageHeading eyebrow="A little space to plan" title="Coming up." description="2 November - 1 December 2026 · the next 30 demo days. Times are in Europe/Copenhagen." />
-    {!state.lastSuccess && state.job ? <LoadingState /> : <section className="panel" aria-labelledby="agenda-heading">
+    <PageHeading eyebrow="A little space to plan" title="Coming up." description={state.mode === "live" ? `${formatDate(state.today)} - ${formatDate(addDays(state.windowEnd, -1))} · the next 30 days. Times are in Europe/Copenhagen.` : "2 November - 1 December 2026 · the next 30 demo days. Times are in Europe/Copenhagen."} />
+    {!state.agenda.length && state.job ? <LoadingState /> : <section className="panel" aria-labelledby="agenda-heading">
       <div className="panel-heading"><h2 id="agenda-heading">Your Orbit agenda</h2><span className="pill">{agenda.length} {agenda.length === 1 ? "item" : "items"}</span></div>
-      <p className="panel-description">Structured calendar facts and your approved suggestions. No external calendar is connected.</p>
+      <p className="panel-description">{state.mode === "live" ? "Structured facts supplied by Aula, not extracted by AI. Complete calendar snapshots reconcile changes and cancellations. No external calendar is connected." : "Structured calendar facts and your approved suggestions. No external calendar is connected."}</p>
       {agenda.length ? <div className="agenda-list full-agenda">{agenda.map((entry) => <EventCard key={entry.id} entry={entry} />)}</div> : <EmptyState title="No upcoming items">There are no agenda items for this child filter and 30-day window. This is not a claim about excluded or unchecked sources.</EmptyState>}
-      <Link href="/review" className="panel-link">{pending.length} suggestions still in review<Icon name="arrow" /></Link>
+      <Link href="/review" className="panel-link">{state.mode === "live" ? "AI suggestions are not enabled" : `${pending.length} suggestions still in review`}<Icon name="arrow" /></Link>
     </section>}
   </>;
 }
@@ -154,6 +188,13 @@ export function ReviewView() {
     previousDecisions.current = state.decisions;
   }, [state.decisions]);
   const decided = state.suggestions.filter((item) => state.decisions[item.id] && matchesChild(item, state.child));
+  if (state.mode === "live") return <>
+    <PageHeading eyebrow="You remain in control" title="Review, then relax." description="AI extraction and suggestions are not enabled. No fictional suggestions are mixed into your Aula data." />
+    <section className="panel" aria-labelledby="live-review-heading"><div className="panel-heading"><h2 id="live-review-heading">Suggestions are not enabled</h2></div>
+      <p className="panel-description">Phase 3 shows original source previews and structured calendar events. AI-generated suggestions require a separate Phase 4 decision. An empty review queue is not an all-clear for Aula.</p>
+      <Link href="/" className="panel-link">Read the original source previews<Icon name="arrow" /></Link>
+    </section>
+  </>;
   return <>
     <PageHeading eyebrow="A moment of your attention" title="Review, then relax." description="Prewritten demo suggestions, grounded in fictional source excerpts. You decide what belongs in your agenda." />
     {!state.lastSuccess && state.job ? <LoadingState /> : <>
@@ -167,6 +208,7 @@ export function ReviewView() {
 
 export function SettingsView() {
   const { state } = useOrganizer();
+  if (state.mode === "live") return <LiveSettings />;
   return <>
     <PageHeading eyebrow="A clear picture, including the gaps" title="Behind the overview." description="A persistent local organizer, not a live Aula connection. Every person, message, and event is fictional." />
     <div className="settings-grid">
@@ -182,5 +224,45 @@ export function SettingsView() {
         <div className="settings-copy"><h3>Stored on this Mac</h3><p>Sources, briefs, approvals, edits, and dismissals are stored in local SQLite. No Aula login, AI provider, analytics, or external calendar is connected.</p><h3>Refresh lifecycle</h3><p>The worker refreshes every 30 minutes while Orbit is running and the Mac is awake. Closing a browser tab does not stop it. Stopping Orbit or sleeping the Mac pauses refresh.</p><h3>Try a different kind of day</h3><p>The demo scenario selector queues an actual worker run against fictional sources. Failures retain previous data. An empty response never deletes saved events. Summaries are deterministic fixtures, not AI output.</p><h3>Start fresh whenever you like</h3><p>Reloading keeps your saved decisions. Reset synthetic dataset clears only the selected synthetic dataset ({state.dataset}) and restores the fictional starting state. Changing scenarios does not reset decisions. Child filters last for in-app navigation.</p><h3>About the starting agenda</h3><p>The lantern walk is a previously approved fixture with an edited title. Its updated source is waiting in Review. Approving replaces the same entry without losing your edits.</p></div>
       </section>
     </div>
+  </>;
+}
+
+function LiveSettings() {
+  const { state, busy, mutate } = useOrganizer();
+  const [confirm, setConfirm] = useState<"delete-live" | "disconnect" | null>(null);
+  return <>
+    <PageHeading eyebrow="A clear picture, including the gaps" title="Behind the overview." description="A read-only Aula connection on this Mac. AI, external calendars, and remote access are not enabled." />
+    <div className="settings-grid">
+      <section className="panel" aria-labelledby="coverage-heading">
+        <div className="panel-heading"><h2 id="coverage-heading">Source coverage</h2><span className="pill">Aula · read-only</span></div>
+        <dl className="coverage-list">{state.coverage.map((item) => <div key={item.kind}>
+          <dt>{item.kind === "Calendar" ? "Calendar events" : `${item.kind}s`}</dt>
+          <dd>{item.complete ? "Checked within the import window" : `Incomplete · ${item.error ?? "not checked"}`}<br />
+            {item.pages} pages checked · {item.items} retained items<br />Last success: {item.lastSuccess ? formatSourceTime(item.lastSuccess) : "Never"}
+            {item.exclusions?.map((notice) => <p key={notice}>{notice}</p>)}
+          </dd>
+        </div>)}
+          <div><dt>Attachments, weekly plans, sensitive content</dt><dd>Not fetched</dd></div>
+          <div><dt>Unread message bodies</dt><dd>Not fetched · title previews only</dd></div>
+          <div><dt>AI summaries & suggestions</dt><dd>Not enabled</dd></div>
+        </dl>
+        <p className="panel-description">Calendar: the next 30 days. Posts/messages: at most 90 days. Missing sources must still be checked in Aula.</p>
+      </section>
+      <section className="panel" aria-labelledby="privacy-heading">
+        <div className="panel-heading"><h2 id="privacy-heading">Your data stays local</h2></div>
+        <div className="settings-copy">
+          <h3>Separate from the demo</h3><p>This live dataset uses a separate SQLite file in the protected, backup-excluded Orbit directory. No source content is sent to AI or analytics.</p>
+          <h3>Retention and refresh</h3><p>Imported sources and related records expire within 90 days. Expired items are hidden immediately and purged while the worker runs or on restart. Refresh runs every 30 minutes while this Mac and Orbit are running.</p>
+          <h3>Disconnect</h3><p>Remove the locally saved Aula session and pause refresh. Imported data remains until expiry or explicit deletion. Reconnect using guarded terminal login; this is not remote token revocation.</p>
+          <button className="button secondary" disabled={busy || Boolean(state.job) || !state.workerOnline} onClick={() => setConfirm("disconnect")}>Disconnect Aula</button>
+          <h3>Delete imported data</h3><p>Delete this live dataset&apos;s sources, agenda, and related local records, then pause refresh. Demo data and the saved login are not deleted.</p>
+          <button className="button secondary" disabled={busy || Boolean(state.job) || !state.workerOnline} onClick={() => setConfirm("delete-live")}>Delete imported Aula data</button>
+        </div>
+      </section>
+    </div>
+    {confirm && <Dialog title={confirm === "delete-live" ? "Delete imported Aula data?" : "Disconnect Aula?"} onClose={() => setConfirm(null)}>
+      <p className="mt-6">{confirm === "delete-live" ? "This deletes the live sources, agenda, and related records on this Mac and pauses future imports. It cannot be undone. Your demo data and saved login are kept." : "This removes the local credentials, key, and any leftover session files. Imported data is kept until expiry or deletion. You will need guarded terminal login to reconnect."}</p>
+      <div className="form-actions mt-6"><button className="button secondary" onClick={() => setConfirm(null)}>Cancel</button><button className="button primary" disabled={busy} onClick={async () => { if (await mutate({ type: confirm })) setConfirm(null); }}>{confirm === "delete-live" ? "Delete live data & pause" : "Disconnect & keep imported data"}</button></div>
+    </Dialog>}
   </>;
 }

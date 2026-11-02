@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EditSuggestion } from "@/components/demo-views";
 import { initialAgenda, suggestions } from "@/demo/fixtures";
 import { OrganizerProvider, useOrganizer } from "@/components/organizer-provider";
-import { mutationSchema, type Snapshot } from "@/domain/model";
+import { children, DEMO_DATE, WINDOW_END, mutationSchema, type Snapshot } from "@/domain/model";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -18,6 +18,7 @@ function renderEditor(id: string) {
   if (!fixture) throw new Error(`Missing fixture ${id}`);
   const suggestion = { ...fixture, revision: "v1", sourceKey: fixture.source.id, editedFields: [] };
   const snapshot: Snapshot = {
+    mode: "synthetic", household: children, today: DEMO_DATE, windowEnd: WINDOW_END, previews: [], connected: false, paused: false,
     dataset: "synthetic-ui", scenario: "normal", agenda: initialAgenda, suggestions: [suggestion],
     brief: [], decisions: {}, lastSuccess: null, briefAt: null, coverage: [],
     syncError: null, job: null, workerOnline: true, stale: false,

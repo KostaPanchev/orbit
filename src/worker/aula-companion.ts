@@ -101,7 +101,7 @@ function main() {
       AULA_MCP_WRITE: "0", AULA_MCP_RAW: "0", AULA_MCP_LOG: "0", AULA_MCP_NO_KEYCHAIN: "1",
     } });
   }
-  console.log("Pinned companion patch verified. This command did not log in; live imports remain disabled.");
+  console.log("Pinned companion patch verified. This command did not log in or start live synchronization.");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

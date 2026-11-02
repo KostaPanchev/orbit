@@ -2,11 +2,31 @@
 
 A single-household dashboard for school and kindergarten information: what matters today, what is coming up, and what needs your review.
 
-Orbit is planned to bring relevant Aula messages, posts, and calendar events into a focused daily overview, reducing the need to read every source individually. It is a dashboard first, not a chatbot or an autonomous agent.
+Orbit brings Aula source previews and structured calendar events into a local overview. AI-generated briefs and suggestions remain a separate future step. It is a dashboard first, not a chatbot or an autonomous agent.
 
-> **Status: Phase 2 local organizer implemented; Phase 3 guarded login and account validation available.** Today, Upcoming, Review, source details, and local settings still use persisted synthetic data. User-controlled login and an explicitly authorized content-free account check have succeeded. Live synchronization, retention-backed live persistence, real AI, remote access, and external calendars are not enabled.
+> **Status: Phase 3 live preview implemented and exercised with authorized real Aula data; final acceptance is pending.** Demo and live modes are separate. Guarded login, read-only ingestion, live source/calendar views, retention, and deletion controls are implemented. AI summaries/suggestions, remote access, and external calendars are not enabled.
 
-## Prototype experience
+## Handoff: paused before Phase 4
+
+As of 2 November 2026, the user has asked to make further changes before Phase 4. All Orbit servers/workers were stopped; ports 3000, 3001, and 3100 were verified closed. Imported data and the saved credential store were preserved, not deleted or revoked. Their presence does not guarantee that the session will still be valid on the next run.
+
+The live implementation includes modified and untracked files. Preserve that worktree; inspect current Git status rather than assuming it is committed. Do not restart services, fetch more live content, or begin Phase 4 merely to resume the conversation. First address the user's requested changes.
+
+**Validation boundary:** a working build served real data, but the latest saved message-date/display, calendar-window, and expired account-metadata changes have not had their final validation run. See [the precise handoff and remaining checks](./plan.md#phase-3-handoff-and-remaining-checks). The last running preview/build is not proof that every current source edit passes.
+
+## Live experience, without AI
+
+- **Today:** original posts and message previews, with real child labels and a household label when the source does not identify a single child. At most 100 recent source previews are listed.
+- **Upcoming:** structured Aula calendar facts across the next 30 Copenhagen dates, with explicit all-day/end fields. No dates are extracted from free text by AI.
+- **Review:** explains that AI suggestions are not enabled; demo suggestions never appear in live mode.
+- **Source details:** original text, timestamps, attachment warnings, and a link to the Aula portal. The portal link is not a verified source-specific deep link.
+- **Local settings:** per-source coverage, excluded categories, disconnect, and explicit live-data deletion.
+
+Unread or unclassified thread bodies are **not fetched**; only eligible title previews are shown. Sensitive content, attachments/images, and weekly-plan providers are excluded. Already-read, explicitly non-sensitive threads may supply message text. Coverage remains incomplete when these exclusions apply; that is not an all-clear result or necessarily a broken login.
+
+The interface is English; real source text is preserved in its original language, not translated or summarized. Household previews remain visible under individual child filters because their audience cannot safely be inferred.
+
+## Demo experience
 
 - **Today:** a concise daily brief highlighting important changes and actions.
 - **Upcoming:** events and deadlines for the next 30 days, with child and institution labels and child filtering.
@@ -36,7 +56,7 @@ Each phase requires a separate request to begin, completion of its prerequisites
 | 4. Grounded AI | English briefs and reviewable suggestions backed by source evidence | Requires an explicit AI provider, processing location, and data-handling decision |
 | 5. Private deployment | Supervised worker, protected access, backups, and tested recovery | Requires explicit hosting and access-control decisions |
 
-### Current milestone: the persistent local organizer
+### Preserved Phase 2 organizer
 
 The prototype uses Emma at Lindely School and Alex at Birch Kindergarten, both fictional, with prewritten English summaries and Danish source excerpts. The fixed demo date is **2 November 2026**; the upcoming window includes **2 November through 1 December**, in Copenhagen time.
 
@@ -62,7 +82,7 @@ The prototype uses Emma at Lindely School and Alex at Birch Kindergarten, both f
 
 The prototype is mobile-first, with restrained color, clear typography, and low visual noise. WCAG 2.1 AA checks cover keyboard operation, visible focus, meaningful labels, non-color status cues, reduced motion, and 200% zoom/reflow. Native modal dialogs provide source inspection and editing; local system fonts avoid remote font requests.
 
-The Next.js application and a separate Node worker share SQLite (Drizzle with `better-sqlite3`) and validated domain services. Only the worker ingests sources. The browser reads server snapshots and submits validated mutations; it does not persist data in localStorage or schedule imports. Synthetic adapters and deterministic summarization use typed boundaries that can support later authorized integrations.
+The Next.js application and a separate Node worker share SQLite (Drizzle with `better-sqlite3`) and validated domain services. Only the worker ingests sources. The browser reads server snapshots and submits validated mutations; it does not persist data in localStorage or schedule imports. The synthetic and Aula adapters share typed persistence workflows. Live mode supplies no AI extraction or brief output.
 
 **Selected hosting: the existing Mac.** The app, SQLite database, and worker run locally without a hosting subscription. Keep access on loopback; remote access has not been approved.
 
@@ -70,17 +90,17 @@ Scheduled refresh runs every 30 minutes while Orbit and the Mac are running, wit
 
 ## Aula integration
 
-Initial live coverage is limited to core Aula messages, posts, and calendar events. Weekly-plan providers, document/image attachments, and content requiring additional access will remain visibly unprocessed.
+Live coverage is limited to core posts, eligible message text/title previews, and structured calendar events. Unread bodies, sensitive content, weekly-plan providers, and document/image attachments remain visibly unprocessed.
 
-[Casperjuel/aula-mcp](https://github.com/Casperjuel/aula-mcp) is the preferred feasibility candidate, **not a live-validated integration**. It is an experimental community integration, not an established official integration contract.
+[Casperjuel/aula-mcp](https://github.com/Casperjuel/aula-mcp) is the pinned companion used by the live preview. It is an experimental community integration, not an official supported Aula contract. Successful account checks and imports do not establish full coverage or complete Phase 3 acceptance.
 
-Phase 3 has started with approved local-only safeguards: FileVault-protected storage, data/token exclusion from backups, a maximum 90-day live-data retention period, and explicit deletion. Credential isolation, pre-login checks, and local session cleanup are implemented below. Live-record retention/deletion and worker disconnect integration are **not implemented yet**; no live imports are enabled.
+Approved safeguards include FileVault-protected local storage, exclusion of data/tokens from backups, a 90-day retention limit, and explicit deletion. Credential isolation, preflight, live-record expiry/deletion, and queued worker disconnect are implemented. Physical cleanup runs only while the worker is active or on restart; it cannot erase files while the Mac/process is stopped.
 
-Inspection of pinned revision `d9a27d84933446783c89446ba3e9d799fd47ea2c` found that malformed responses can become empty successful results and individual-thread completion metadata is not exposed. The inspected Python MCP alternative also loses post-completion information. The approved local patch rejects ambiguous results, preserves thread continuation metadata, and normalizes Aula's verified `hasMorePosts` flag. Missing, invalid, and conflicting flags still fail explicitly. The companion supports protected login and account validation, but is not connected to the organizer worker. Existing startup still rejects live datasets.
+Inspection of pinned revision `d9a27d84933446783c89446ba3e9d799fd47ea2c` found ambiguous empty-success responses and lost individual-thread completion metadata. The local patch rejects those responses, preserves thread pagination, normalizes the verified native `hasMorePosts` flag, and converts message HTML to plain text using the companion's existing helper. It also provides the private-session persistence restrictions below. Missing, invalid, or conflicting pagination evidence still fails explicitly.
 
-Before adoption, a pinned revision must be reviewed and validated for authorized login, account-specific coverage, pagination, read-marker behavior, session expiry, reconnect handling, and permitted use. The proposed integration uses a local MCP stdio companion, with its Bun runtime separate from the Next.js Node runtime.
+The worker uses MCP stdio, keeping Bun separate from Next.js/Node. Authorized account validation, a real 30-day calendar import, and automatic credential renewal have been observed. Comprehensive reconnect/revocation and remaining acceptance checks are still pending. Authentication remains user-driven; the authentication protocol was not copied into Orbit.
 
-Orbit will allowlist required read tools and leave `AULA_MCP_WRITE` and `AULA_MCP_RAW` disabled. It must not mark messages read, change presence, download excluded attachments, or bypass access controls.
+Orbit allowlists the five required read tools and leaves `AULA_MCP_WRITE` and `AULA_MCP_RAW` disabled. It does not expose presence writes, read-marker changes, arbitrary API requests, attachment downloads, or provider tools.
 
 See the [integration research and feasibility checklist](./plan.md#aula-integration-research-and-recommendation) for alternatives and detailed requirements.
 See [Phase 3 status](./plan.md#phase-3-read-only-aula-integration) for pinned source evidence, approved safeguards, and the next decision.
@@ -143,7 +163,7 @@ Stop an active login with **Ctrl+C** before disconnecting. A force-killed proces
 
 An earlier wrapper allowed Bun to create a runtime code cache inside the credential directory. That caused authentication to succeed but Orbit's post-login check to reject the session with "Unexpected session files or legacy cookies/logs exist." The cache is now disabled, not added to the credential allowlist. The failed guarded attempt runs local cleanup; rerun `pnpm aula:preflight` and then the guarded login command above. This fix was reproduced and verified with the actual Bun runtime and fictional files, without reading real credentials or repeating authentication.
 
-**Still pending:** full-window account coverage, unread read-marker behavior, expiry/reconnect validation, 90-day live-record retention/deletion, worker disconnect integration, and live UI/sync. An allowlisted account-validation command is available below; missing evidence remains an explicit failure.
+**Still pending:** final verification of the latest edits, full Phase 3 acceptance, and the user's requested refinements. Unread bodies remain deliberately excluded rather than being enabled on the strength of already-read samples.
 
 ### Content-free account validation
 
@@ -159,13 +179,13 @@ The local Node client talks to the pinned Bun companion over MCP stdio. Its allo
 
 Checks stop at 50 pages per listing/thread, 15 seconds per request, or 120 seconds overall. Missing/duplicate/inconsistent pages, sensitive-message restrictions, malformed data, and limits remain explicit failures. Each process is closed and awaited before releasing the session lock. No family content, IDs, names, source hashes, or credential values are printed or saved in a report file.
 
-An authorized account sample has passed after fixing the native post-pagination field. **`sample-checks-passed` is not Phase 3 completion:** already-read samples do not establish unread behavior; a calendar-week sample does not establish a full 30-day import; source normalization, expiry/reconnect behavior, 90-day retention/deletion, and live worker/UI wiring remain outstanding. The report lists these limitations. The dashboard will remain synthetic until that implementation is complete; no additional MitID setup is needed merely to implement it.
+An authorized account sample passed after fixing the native post-pagination field, and a later live run imported real sources through the worker. **`sample-checks-passed` is still not Phase 3 completion:** already-read samples do not establish unread behavior, and this command checks a calendar week rather than the live adapter's 30-day window. Validation does not enable a mode, import records, or replace the remaining acceptance checks.
 
 ## Trust and privacy
 
-- Use fictional data until the live-data safeguards are explicitly approved.
+- Use fictional data for automated tests, browser captures, and diagnostic fixtures. Authorized real data must stay local; do not dump it into chat, screenshots, logs, or shared artifacts.
 - Bind local prototypes to loopback; do not expose an unauthenticated prototype to a LAN or the internet.
-- Before live ingestion, decide storage, retention, access control, encryption, credential handling, backup, disconnect, and deletion behavior. SQLite alone does not encrypt stored content.
+- Preserve the approved storage, retention, backup, credential, disconnect, and deletion safeguards. SQLite itself is not encrypted; live storage relies on FileVault, private files, and backup exclusion. The app has no separate household-user authentication and must remain loopback-only.
 - Keep connector tokens out of client code, logs, and the repository. Never supply MitID credentials or tokens in chat.
 - Avoid third-party analytics, content-bearing error telemetry, and logging family content.
 - Keep live AI disabled until its provider, processing location, retention, and any external data transfers are approved. A local MCP process does not imply local AI processing.
@@ -183,7 +203,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Open **http://127.0.0.1:3000**. The launcher migrates and initializes the synthetic database in the worker, then starts Next.js. Development and production scripts bind to loopback and disable Next.js telemetry. No credentials or external data services are needed. Dependency installation requires the package registry; the running organizer makes no external service requests.
+With no live environment override, open **http://127.0.0.1:3000** for the demo. The launcher migrates and initializes the synthetic database in the worker, then starts Next.js. Development and production scripts bind to loopback and disable Next.js telemetry. Demo mode needs no credentials and makes no live Aula requests.
 
 For a local production preview:
 
@@ -194,18 +214,47 @@ pnpm start
 
 Stop the launcher with **Ctrl+C**; both app and worker stop. Do not run `pnpm worker` alongside `pnpm dev` or `pnpm start` against the same database.
 
+### Starting live mode when requested
+
+Run from the repository root, after companion preparation and guarded login:
+
+```sh
+pnpm dev:live --port 3001
+```
+
+Or build the current source first, then use production mode:
+
+```sh
+pnpm build
+pnpm start:live --port 3001
+```
+
+Open **http://127.0.0.1:3001**. These commands start both Next.js and the live worker; they are not merely display commands and may contact Aula immediately. The live page can appear while its first refresh is running. It uses `live-aula` in `.orbit/live.sqlite`, never the demo database. A valid saved session is reused/refreshed; log in again only if reconnection is needed.
+
+Stop with **Ctrl+C**. Browser closure alone does not stop either process. After an interrupted shutdown, wait up to 60 seconds for the database lease to expire rather than deleting it. A session-operation lock is separate and must not be bypassed without verifying the owner and companion have exited. Stopping services does not delete credentials or imported data.
+
+### Live retention, disconnect, and deletion
+
+- Sources carry stable upstream/account identities, revisions, first-seen times, and expiry. Retention is capped by source time and by 90 days since first persistence; unchanged reimports do not renew it. Thread retention uses the earliest retained message timestamp. Related agenda/review records are removed with their source.
+- Expired source/agenda records are filtered from snapshots immediately. The worker purges expired data on startup, before live sync, and periodically while running. While Orbit is stopped, files remain until it next runs. Secure deletion and WAL truncation are used, but this is not forensic erase or removal from historical backups.
+- Structured calendar updates are idempotent. Explicit cancellation evidence can remove a record; absence triggers removal only after a complete valid snapshot covering that event. Partial/invalid snapshots never justify that reconciliation.
+- In **Local settings**, **Disconnect Aula** queues session removal and pauses live refresh, retaining imported data. Guarded login plus an explicit refresh resumes a UI-paused connection.
+- **Delete imported Aula data** deletes the live sources, agenda, and related records and pauses refresh. It preserves the saved login and the demo. Use both actions if you want both local data and credentials removed.
+- The standalone `pnpm aula:disconnect` clears credentials only; it does not update the database pause flag. A running worker then reports disconnected instead of importing. UI privacy jobs require the worker to be online and wait for the current operation to finish.
+
 ### Local database and worker
 
-- Default storage: `.orbit/orbit.sqlite`, with SQLite WAL/SHM sidecars. These files are ignored by Git. SQLite is **not encrypted**; only fictional data is authorized.
+- Default demo storage: `.orbit/orbit.sqlite`; live storage: `.orbit/live.sqlite`, each with SQLite WAL/SHM sidecars. All are ignored by Git. Live SQLite is protected by the approved host safeguards, not SQL-level encryption.
 - `pnpm db:setup` applies committed Drizzle migrations and imports synthetic fixtures without starting the app. It preserves decisions. Run it only when the worker is stopped.
 - `pnpm worker` runs ingestion alone, independently of any browser. Only one worker may hold the database lease; after a crash, takeover can require up to 60 seconds.
-- `ORBIT_DB_PATH` selects another local database file. `ORBIT_DATASET` selects a dataset named `synthetic-*` (default `synthetic-default`). Set these in the launching shell so both app and worker receive the same values. Live datasets are rejected.
+- `ORBIT_DB_PATH` can select another demo/test file. `ORBIT_DATASET` accepts `synthetic-*` (default `synthetic-default`) or `live-aula`. Live mode is restricted to `.orbit/live.sqlite`; the `*:live` launchers set both values together. Do not point automated tests at it.
 - `pnpm db:generate` generates migrations after schema changes. Startup and `db:setup` apply migrations; page renders and API requests never migrate, seed, or ingest.
 - Sync fetches every synthetic page, uses five-second page timeouts with at most three attempts and bounded backoff, and records per-source coverage. Worker jobs survive a closed browser and process interruption.
+- Live imports use the same job/lease workflow with a protected MCP session. Calendar is checked first, then posts and messages. Reads are allowlisted and bounded; incomplete results, rate limits, expiry, and excluded content have explicit coverage states. Migration `0002_wakeful_mantis.sql` adds the live metadata, expiry, and agenda/source links.
 - If the worker is offline, saved information remains visible and refresh requests wait in the queue. Restart Orbit to process them. A local-storage error is shown explicitly rather than reporting a successful save.
-- The app is unauthenticated and synthetic-only. Host checks and same-origin JSON mutations are additional local safeguards, not authorization for remote or live-data use.
+- Both page and API reads enforce local host/origin rules; mutations require same-origin JSON. Responses use no-store/referrer/frame protections. These are local safeguards, not authentication or permission to expose the app remotely.
 
-### Try the main journey
+### Try the demo journey
 
 1. Inspect a daily brief source and its original Danish excerpt, including the unprocessed attachment warning.
 2. Open Review. Approve the consent deadline, edit and approve the trip, and dismiss the unresolved gathering.
@@ -216,7 +265,7 @@ Stop the launcher with **Ctrl+C**; both app and worker stop. Do not run `pnpm wo
 
 The consent fixture is only a reminder: approving it does not reply in Aula. No external calendar is connected. A user-entered date outside the 30-day window is saved but not shown in Upcoming; the approval announcement explains this.
 
-Phase 2 is ready for local-organizer feedback. Phase 3 is not started: live-data safeguards and authorized account access still require a separate decision and request. The AI provider/processing location and remote deployment also remain unapproved. See [plan.md](./plan.md) for phase gates and [AGENTS.md](./AGENTS.md) for contributor guidance.
+Phase 2 remains available unchanged as a demo. Phase 3 has a working live preview but awaits refinements and final acceptance. The AI provider/processing location and remote deployment remain unapproved. See [plan.md](./plan.md) for phase gates and [AGENTS.md](./AGENTS.md) for contributor guidance.
 
 ## Verification
 
@@ -240,9 +289,16 @@ Verification coverage for Phase 2:
 - Axe WCAG 2.1 AA checks on all four views and both dialogs. Automated checks are not a full accessibility certification; physical-device, WebKit/Firefox, and screen-reader testing are not yet performed.
 - Lint, TypeScript, and a production build.
 
-Later phases add:
+Phase 3 adds fictional live-source/retention/access tests, companion contract/private-store tests, and live-mode Playwright views driven by intercepted fictional snapshots. Browser tests never authenticate or capture the real household. The tested boundaries include DST windows, all-day events, duplicate IDs, partial calendar reconciliation, exact retention expiry, deletion isolation, tool denial, and explicit coverage gaps.
 
-- Connector and AI tests in later phases for pagination, incomplete responses, expired sessions, Danish dates, daylight-saving changes, unsupported claims, and prompt-injection content.
+**Last verified checkpoints, not a claim about all current edits:**
+
+- Full Orbit suite: **89 tests**; companion suite: **144 tests**; full desktop/mobile browser suite: **32 tests**. Lint, type-check, and production build passed at that checkpoint.
+- Subsequently, the nullable message-metadata fix passed **18 focused source/store tests**, lint, and type-check; the build passed. **8 live-view browser checks** passed with fictional long names, source/settings dialogs, narrow layout, zoom, and axe checks.
+- Later message-by-message source dates/latest-message previews, stricter calendar-window filtering, and expired account-binding cleanup were saved with tests but **not rerun before the user stopped work**. Rerun the relevant tests and build before claiming this final source state verified.
+- The earlier live runtime was verified with counts/status only: posts/calendar succeeded; remaining message warnings were unread/sensitive exclusions rather than normalization errors. Token renewal was observed. No full revocation/reconnect lifecycle certification or live browser screenshot review was performed.
+
+Documentation-only handoff updates do not restart validation or services. When implementation resumes, use the commands above plus `pnpm aula:test`; keep all automated fixtures fictional. New AI evaluation belongs to separately authorized Phase 4.
 
 See the [acceptance criteria](./plan.md#acceptance-and-verification) for the exact requirements. Passing one phase's checks does not establish that later phases work.
 

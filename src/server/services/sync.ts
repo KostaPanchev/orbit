@@ -1,11 +1,14 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { initialAgenda } from "../../demo/fixtures";
-import { DomainError, REFRESH_INTERVAL, candidateSchema, extractionSchema, sourceKinds, sourceRecordSchema, type Coverage, type Extraction, type SourceRecord } from "../../domain/model";
+import { DomainError, REFRESH_INTERVAL, LIVE_RETENTION_MS, candidateSchema, extractionSchema, sourceKinds, sourceRecordSchema, type Coverage, type Extraction, type SourceRecord } from "../../domain/model";
+import { liveWindow } from "../../domain/dates";
+import { eventInWindow } from "../../domain/presentation";
 import type { OrbitDb } from "../db/client";
 import { agenda, briefs, candidates, datasets, decisions, jobs, sources, syncRuns, workerLease } from "../db/schema";
 import { SourceError, SyntheticSource, SyntheticSummarizer, sourceKey, type SourceAdapter, type SourcePage, type Summarizer } from "../sources/synthetic";
-import { latestCoverage, mutate, requireSynthetic } from "./organizer";
+import { latestCoverage, mutate, requireDataset, requireSynthetic } from "./organizer";
+import { checkpointPrivateData, pruneLiveData, removeLiveSources } from "./retention";
 
 export function hash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -30,24 +33,32 @@ export function importRecord(db: OrbitDb, dataset: string, raw: SourceRecord, su
   const key = sourceKey(record);
   const revision = hash(record);
   const old = db.select().from(sources).where(and(eq(sources.dataset, dataset), eq(sources.key, key))).get();
+  const data = requireDataset(db, dataset);
+  const firstSeenAt = old?.firstSeenAt ?? Date.now();
+  const expiresAt = data.kind === "live" ? Math.min(firstSeenAt + LIVE_RETENTION_MS, Date.parse(record.retainUntil ?? "")) : null;
+  if (data.kind === "live" && (summarize instanceof SyntheticSummarizer || expiresAt === null || !Number.isFinite(expiresAt) || expiresAt <= Date.now() ||
+    record.accountScope !== data.accountScope || !data.household?.[record.child])) {
+    throw new SourceError("invalid-data");
+  }
   // Even cached outputs must respect a simulated processing outage.
   let output: Extraction | null;
   try {
-    output = old?.revision === revision && old.extraction && !(summarize instanceof SyntheticSummarizer && requireSynthetic(db, dataset).scenario === "ai-unavailable")
+    output = old?.revision === revision && old.extraction && !(summarize instanceof SyntheticSummarizer && data.scenario === "ai-unavailable")
       ? old.extraction : validateExtraction(record, summarize.summarize(record));
+    if (data.kind === "live" && (output.candidates.length || output.brief.length)) throw new SourceError("invalid-data");
   } catch (error) {
     if (!(error instanceof SourceError) || error.code !== "summary-unavailable") throw error;
     output = null;
   }
   db.$client.transaction(() => {
     assertLease(db, owner);
-    const data = requireSynthetic(db, dataset);
-    db.insert(sources).values({ dataset, key, revision, record, extraction: output })
-      .onConflictDoUpdate({ target: [sources.dataset, sources.key], set: { revision, record, extraction: output } }).run();
+    requireDataset(db, dataset);
+    db.insert(sources).values({ dataset, key, revision, record, extraction: output, firstSeenAt, expiresAt })
+      .onConflictDoUpdate({ target: [sources.dataset, sources.key], set: { revision, record, extraction: output, expiresAt } }).run();
     if (record.structuredEvent) {
       if (record.source.kind !== "Calendar" || record.structuredEvent.origin !== "Structured calendar" || record.structuredEvent.child !== record.child || hash(record.structuredEvent.source) !== hash(record.source)) throw new SourceError("invalid-data");
       const id = `${key}/${record.structuredEvent.id}`;
-      const entry = { dataset, id, revision, candidateId: null, payload: { ...record.structuredEvent, id }, editedFields: [] };
+      const entry = { dataset, id, revision, candidateId: null, sourceKey: key, payload: { ...record.structuredEvent, id }, editedFields: [] };
       db.insert(agenda).values(entry).onConflictDoUpdate({ target: [agenda.dataset, agenda.id], set: entry }).run();
     }
     if (!output) return;
@@ -95,7 +106,7 @@ async function fetchPage(adapter: SourceAdapter, kind: typeof sourceKinds[number
       return await Promise.race([
         adapter.page(kind, cursor, controller.signal),
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => { controller.abort(); reject(new SourceError("timeout")); }, 5_000);
+          timer = setTimeout(() => { controller.abort(); reject(new SourceError("timeout")); }, adapter.pageTimeout ?? 5_000);
         }),
       ]);
     } catch (error) {
@@ -107,37 +118,69 @@ async function fetchPage(adapter: SourceAdapter, kind: typeof sourceKinds[number
 
 export async function synchronize(db: OrbitDb, dataset: string, owner: string, adapter?: SourceAdapter, summarizer?: Summarizer) {
   assertLease(db, owner);
-  const data = requireSynthetic(db, dataset);
+  const data = requireDataset(db, dataset);
+  if (data.kind === "live" && (!adapter || !summarizer)) throw new DomainError("Live sync requires the allowlisted adapter and disabled AI processor.");
+  if (data.kind === "live") pruneLiveData(db, dataset);
   const source = adapter ?? new SyntheticSource(data.scenario);
   const processor = summarizer ?? new SyntheticSummarizer(data.scenario);
-  const coverage: Coverage[] = latestCoverage(db, dataset).map((item) => ({ ...item, complete: false, error: null, pages: 0, items: 0, checkedAt: null }));
+  const coverage: Coverage[] = latestCoverage(db, dataset).map((item) => ({ ...item, complete: false, error: null, pages: 0, items: 0, checkedAt: null, exclusions: [] }));
   const id = randomUUID();
   db.$client.transaction(() => {
     assertLease(db, owner);
     db.insert(syncRuns).values({ id, dataset, startedAt: new Date().toISOString(), coverage }).run();
   }).immediate();
   let summaryFailed = false;
-  for (const kind of sourceKinds) {
+  const kinds = data.kind === "live" ? ["Calendar", "Post", "Message"] as const : sourceKinds;
+  for (const kind of kinds) {
     const outcome = coverage.find((item) => item.kind === kind)!;
     try {
       let cursor: string | null = null;
       const visited = new Set<string>();
+      const importedKeys = new Set<string>();
+      let issue: Coverage["error"] = null;
       do {
         const page = await fetchPage(source, kind, cursor);
+        issue ??= page.issues?.[0] ?? null;
+        outcome.exclusions = [...new Set([...(outcome.exclusions ?? []), ...(page.exclusions ?? [])])];
         for (const raw of page.items) {
           const record = sourceRecordSchema.parse(raw);
           if (record.source.kind !== kind) throw new SourceError("invalid-data");
           if (!importRecord(db, dataset, record, processor, owner)) summaryFailed = true;
+          importedKeys.add(sourceKey(record));
         }
-        outcome.pages++;
+        const removedIds = page.removedIds ?? [];
+        const accountScope = data.accountScope;
+        if (data.kind === "live" && removedIds.length) {
+          if (!accountScope) throw new SourceError("invalid-data");
+          db.$client.transaction(() => {
+            assertLease(db, owner);
+            removeLiveSources(db, dataset, removedIds.map((upstreamId) => sourceKey({
+              accountScope, upstreamId, source: { kind },
+            })));
+          }).immediate();
+        }
+        outcome.pages += page.pagesRead ?? 1;
         outcome.items += page.items.length;
         cursor = page.nextCursor;
         if (cursor && (visited.has(cursor) || outcome.pages >= 1000)) throw new SourceError("incomplete");
         if (cursor) visited.add(cursor);
         if (!cursor && !page.complete) throw new SourceError("incomplete");
       } while (cursor);
-      outcome.complete = true;
-      outcome.checkedAt = outcome.lastSuccess = new Date().toISOString();
+      outcome.complete = issue === null;
+      outcome.error = issue;
+      outcome.checkedAt = new Date().toISOString();
+      if (outcome.complete) {
+        outcome.lastSuccess = outcome.checkedAt;
+        if (data.kind === "live" && kind === "Calendar") {
+          const window = liveWindow();
+          const removed = db.select().from(sources).where(eq(sources.dataset, dataset)).all().filter((row) =>
+            row.record.structuredEvent && eventInWindow(row.record.structuredEvent, window.today, window.windowEnd) && !importedKeys.has(row.key));
+          db.$client.transaction(() => {
+            assertLease(db, owner);
+            removeLiveSources(db, dataset, removed.map((row) => row.key));
+          }).immediate();
+        }
+      }
     } catch (error) {
       if (error instanceof DomainError) throw error;
       if (!(error instanceof SourceError) && !(error instanceof Error && error.name === "ZodError")) throw error;
@@ -148,6 +191,7 @@ export async function synchronize(db: OrbitDb, dataset: string, owner: string, a
       assertLease(db, owner);
       db.update(syncRuns).set({ coverage }).where(eq(syncRuns.id, id)).run();
     }).immediate();
+    if (data.kind === "live") checkpointPrivateData(db);
   }
   db.$client.transaction(() => {
     assertLease(db, owner);

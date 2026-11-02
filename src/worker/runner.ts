@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 import { DomainError } from "../domain/model";
 import type { OrbitDb } from "../server/db/client";
 import { jobs, workerLease } from "../server/db/schema";
-import { enqueue, ensureDataset, requireSynthetic } from "../server/services/organizer";
+import { enqueue, ensureDataset, requireDataset } from "../server/services/organizer";
 import { assertLease, recoverInterrupted, resetSynthetic, seedHistory, synchronize } from "../server/services/sync";
+import { disconnectLive, synchronizeLive } from "../server/services/live-sync";
+import { deleteLiveData } from "../server/services/retention";
 
 export const LEASE_MS = 60_000;
 
@@ -31,12 +33,12 @@ export function releaseLease(db: OrbitDb, owner: string) {
 export function requestScheduledRefresh(db: OrbitDb, dataset: string, owner: string, now = Date.now()) {
   db.$client.transaction(() => {
     assertLease(db, owner);
-    const data = requireSynthetic(db, dataset);
+    const data = requireDataset(db, dataset);
     const pending = db.select().from(jobs).where(and(eq(jobs.dataset, dataset), inArray(jobs.status, ["queued", "running"]))).get();
-    if (data.nextRefresh <= now && !pending) enqueue(db, dataset, "refresh", now);
+    if (!data.paused && data.nextRefresh <= now && !pending) enqueue(db, dataset, "refresh", now);
   }).immediate();
 }
-export async function processNextJob(db: OrbitDb, dataset: string, owner: string) {
+export async function processNextJob(db: OrbitDb, dataset: string, owner: string, signal?: AbortSignal) {
   const job = db.$client.transaction(() => {
     assertLease(db, owner);
     const next = db.select().from(jobs).where(and(eq(jobs.dataset, dataset), eq(jobs.status, "queued"))).orderBy(asc(jobs.createdAt)).get();
@@ -45,9 +47,17 @@ export async function processNextJob(db: OrbitDb, dataset: string, owner: string
   }).immediate();
   if (!job) return false;
   try {
-    if (job.type === "reset") resetSynthetic(db, dataset, owner);
-    seedHistory(db, dataset, owner);
-    await synchronize(db, dataset, owner);
+    const data = requireDataset(db, dataset);
+    if (data.kind === "live") {
+      if (job.type === "delete-live") deleteLiveData(db, dataset);
+      else if (job.type === "disconnect") await disconnectLive(db, dataset, owner);
+      else if (job.type === "refresh") await synchronizeLive(db, dataset, owner, signal);
+      else throw new DomainError("Synthetic reset is disabled for live data.");
+    } else {
+      if (job.type === "reset") resetSynthetic(db, dataset, owner);
+      seedHistory(db, dataset, owner);
+      await synchronize(db, dataset, owner);
+    }
     db.$client.transaction(() => {
       assertLease(db, owner);
       db.update(jobs).set({ status: "done" }).where(eq(jobs.id, job.id)).run();

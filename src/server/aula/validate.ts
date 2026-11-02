@@ -71,7 +71,7 @@ export async function validateAula(reader: AulaReader, signal: AbortSignal): Pro
     posts: check(), threadList: check(), threadMessages: check(), calendar: check(),
     calendarWindow: "this_week", sampledThreads: 0, sampledUnreadThreads: 0, readMarkers: "not-tested",
     exclusions: ["attachments", "weekly-plan providers", "sensitive/step-up-only content"],
-    remaining: ["unread read-marker behavior", "full-window source normalization", "token expiry/refresh/reconnect", "90-day retention and live synchronization"],
+    remaining: ["unread read-marker behavior", "excluded-source coverage", "full Phase 3 acceptance review"],
   };
   let profileIds: number[] = [];
   await checked(report.profiles, async () => {
