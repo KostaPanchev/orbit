@@ -4,5 +4,7 @@ import { afterEach } from "vitest";
 
 afterEach(cleanup);
 
-HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
-HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+if (typeof HTMLDialogElement !== "undefined") {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+}

@@ -1,20 +1,38 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EditSuggestion } from "@/components/demo-views";
-import { suggestions } from "@/demo/fixtures";
-import { DemoProvider, useDemo } from "@/demo/provider";
+import { initialAgenda, suggestions } from "@/demo/fixtures";
+import { OrganizerProvider, useOrganizer } from "@/components/organizer-provider";
+import { mutationSchema, type Snapshot } from "@/domain/model";
+
+afterEach(() => vi.unstubAllGlobals());
 
 function StateProbe() {
-  const { state } = useDemo();
+  const { state } = useOrganizer();
   return <output aria-label="Agenda state">{JSON.stringify(state.agenda)}</output>;
 }
 
 function renderEditor(id: string) {
-  const suggestion = suggestions.find((item) => item.id === id);
-  if (!suggestion) throw new Error(`Missing fixture ${id}`);
+  const fixture = suggestions.find((item) => item.id === id);
+  if (!fixture) throw new Error(`Missing fixture ${id}`);
+  const suggestion = { ...fixture, revision: "v1", sourceKey: fixture.source.id, editedFields: [] };
+  const snapshot: Snapshot = {
+    dataset: "synthetic-ui", scenario: "normal", agenda: initialAgenda, suggestions: [suggestion],
+    brief: [], decisions: {}, lastSuccess: null, briefAt: null, coverage: [],
+    syncError: null, job: null, workerOnline: true, stale: false,
+  };
+  vi.stubGlobal("fetch", vi.fn(async (_url, init: RequestInit) => {
+    const action = mutationSchema.parse(JSON.parse(String(init.body)));
+    if (action.type !== "approve") throw new Error("Unexpected UI mutation");
+    return Response.json({
+      ...snapshot,
+      agenda: [...snapshot.agenda, { ...action.details, id: "approved-trip", child: suggestion.child, source: suggestion.source, origin: "Approved suggestion" }],
+      decisions: { [suggestion.id]: "approved" },
+    });
+  }));
   const onClose = vi.fn();
-  render(<DemoProvider><EditSuggestion suggestion={suggestion} onClose={onClose} /><StateProbe /></DemoProvider>);
+  render(<OrganizerProvider initialState={snapshot}><EditSuggestion suggestion={suggestion} onClose={onClose} /><StateProbe /></OrganizerProvider>);
   return onClose;
 }
 
@@ -25,8 +43,8 @@ describe("review editor", () => {
     expect(screen.getByLabelText("Time (optional)")).toHaveValue("");
     await user.clear(screen.getByLabelText("Title"));
     await user.type(screen.getByLabelText("Title"), "Nature trip - packed lunch");
-    await user.click(screen.getByRole("button", { name: "Approve & add to demo" }));
-    expect(screen.getByLabelText("Agenda state")).toHaveTextContent("Nature trip - packed lunch");
+    await user.click(screen.getByRole("button", { name: "Approve & save to Orbit" }));
+    await waitFor(() => expect(screen.getByLabelText("Agenda state")).toHaveTextContent("Nature trip - packed lunch"));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
@@ -37,12 +55,12 @@ describe("review editor", () => {
     expect(date).toBeRequired();
     expect(date).toHaveValue("");
     expect(screen.getByRole("checkbox")).toBeRequired();
-    await user.click(screen.getByRole("button", { name: "Approve & add to demo" }));
+    await user.click(screen.getByRole("button", { name: "Approve & save to Orbit" }));
     expect(onClose).not.toHaveBeenCalled();
     await user.type(date, "2026-11-20");
     await user.click(screen.getByRole("checkbox"));
-    await user.click(screen.getByRole("button", { name: "Approve & add to demo" }));
-    expect(onClose).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Approve & save to Orbit" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
   it("reports a whitespace-only title instead of silently adding an invalid item", async () => {
@@ -50,7 +68,7 @@ describe("review editor", () => {
     const onClose = renderEditor("trip");
     await user.clear(screen.getByLabelText("Title"));
     await user.type(screen.getByLabelText("Title"), "   ");
-    await user.click(screen.getByRole("button", { name: "Approve & add to demo" }));
+    await user.click(screen.getByRole("button", { name: "Approve & save to Orbit" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a title");
     expect(screen.getByLabelText("Title")).toHaveAttribute("aria-invalid", "true");
     expect(onClose).not.toHaveBeenCalled();
@@ -62,5 +80,17 @@ describe("review editor", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(screen.getByLabelText("Agenda state")).not.toHaveTextContent("approved-trip");
+  });
+
+  it("keeps the editor open with entered values when a stale revision is rejected", async () => {
+    const user = userEvent.setup();
+    const onClose = renderEditor("trip");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "This suggestion has changed. Reload the latest evidence." }, { status: 409 })));
+    await user.clear(screen.getByLabelText("Title"));
+    await user.type(screen.getByLabelText("Title"), "Keep this edit");
+    await user.click(screen.getByRole("button", { name: "Approve & save to Orbit" }));
+    await expect(screen.findByRole("alert")).resolves.toHaveTextContent("suggestion has changed");
+    expect(screen.getByLabelText("Title")).toHaveValue("Keep this edit");
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

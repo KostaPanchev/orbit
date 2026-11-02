@@ -4,9 +4,9 @@
 
 Reduce the mental load of following school and kindergarten information: explain what matters today, show upcoming events and deadlines, and turn relevant information into reviewable event suggestions.
 
-Phase 1 is implemented as a Next.js App Router/TypeScript frontend with Tailwind CSS, fictional fixtures, and shared in-memory state. Today, Upcoming, Review, source drawers, child filters, and demo settings are interactive. No family data, Aula account, AI provider, database, or external calendar has been accessed or enabled.
+Phases 1 and 2 are implemented as a Next.js App Router/TypeScript frontend with Tailwind CSS, fictional fixtures, and local SQLite persistence. Today, Upcoming, Review, source drawers, child filters, and local settings are interactive. A separate Node worker performs synthetic imports; approvals, edits, and dismissals survive reloads and restarts. No family data, Aula account, AI provider, remote hosting, or external calendar has been accessed or enabled.
 
-The UI prototype and its automated acceptance checks are complete; the next step is user UX feedback. Phases 2-5 remain unstarted and require separate authorization.
+The UI prototype and local-organizer acceptance checks are complete; the next step is user feedback on Phase 2. Phases 3-5 remain unstarted and require separate authorization. The request to begin Phase 2 was treated as approval to continue with the existing Phase 1 UI, not approval of any live integration.
 
 Build a dashboard first, not a chatbot or general-purpose autonomous agent. Use a controlled ingestion and summarization workflow so the interface remains useful even when Aula or AI is unavailable.
 
@@ -36,7 +36,7 @@ Phase 1 must not require a database, backend integration, background worker, Aul
 - In Phase 1, approval changes only the in-memory demo agenda. From Phase 2, approval saves an item persistently inside Orbit. Google Calendar, Apple Calendar, calendar export/subscription, and external calendar writes are deferred.
 - Phase 1 simulates refresh. From Phase 2, refresh every 30 minutes while the local worker is running, with a manual refresh option. Update the daily brief when relevant information changes once AI is enabled.
 - Show the next 30 days by default.
-- Current hosting choice: run Orbit on the user's existing Mac, with the application, future SQLite database, and future worker on that machine. This avoids a hosting subscription; always-on availability is not required.
+- Current hosting choice: run Orbit on the user's existing Mac, with the application, SQLite database, and worker on that machine. This avoids a hosting subscription; always-on availability is not required.
 - From Phase 2, refresh runs only while Orbit's local process and worker are running and the Mac is awake. Stopping the local process stops refresh; sleep suspends refresh. Closing a browser tab/window alone does not stop the local process or worker.
 - This local-hosting choice supersedes the earlier fully undecided hosting status. Remote access and any later production deployment remain unapproved; keep loopback-only access for now. The AI provider and processing location remain undecided. No cloud service or later phase is authorized by this decision.
 
@@ -151,11 +151,11 @@ Local worker
 
 - `src/app/`: Today, Upcoming, Review, and connection/status settings routes.
 - `src/components/`: reusable presentation components and accessibility primitives.
-- `src/demo/`: typed fictional fixtures, shared in-memory state, and scenario selection in Phase 1.
+- `src/demo/`: fictional fixtures consumed only by the synthetic server adapter and fixture-history bootstrap. Phase 1's in-memory store has been replaced.
 - `src/domain/`: source records, events, review states, brief schemas, and validation rules.
 - `src/server/db/`: database schema, migrations, and repositories.
 - `src/server/sources/`: synthetic adapter and later the Aula MCP adapter.
-- `src/server/briefs/`: extraction, summarization, provenance validation, and provider boundary.
+- `src/server/briefs/`: future AI implementation in Phase 4. Phase 2's summarizer interface and deterministic implementation live alongside the synthetic source adapter; provenance validation runs in the sync service.
 - `src/server/services/`: sync, agenda, and review workflows.
 - `src/worker/`: scheduled/manual job processing and lifecycle.
 - `tests/`: synthetic fixtures, unit/integration tests, and browser tests.
@@ -260,6 +260,21 @@ Todo: **Implementing persistent local workflows** (`prototype-data`), after `pro
 - Add database integration tests and setup documentation.
 
 **Exit criteria:** decisions survive reloads/restarts; repeated imports do not duplicate items; changed source versions request re-review without destroying user edits; simulated failures preserve last-successful data with clear status. No Aula account, AI provider, or cloud deployment is required.
+
+**Implementation status (2 November 2026):** `prototype-data` is implemented and verified.
+
+- Added Zod contracts, committed Drizzle migrations, and SQLite storage with dataset-scoped source identities, content revisions, candidates, decision history, agenda entries, briefs, sync runs, durable jobs, and a worker lease.
+- The frontend reads persisted snapshots and uses validated, same-origin server mutations. Approval/dismissal is transactional; stale candidate versions and pre-reset forms are rejected. Revisions preserve all user-edited fields by default and replace, rather than duplicate, linked agenda entries.
+- Synthetic data follows the adapter, normalization, evidence validation, persistence, review, and presentation workflow. Unchanged extraction is reused. Structured dates are imported independently of summary availability.
+- Manual/scenario requests and 30-minute scheduling use one worker queue. The local launcher starts the worker before Next.js and stops both together. Leases, bounded page retries/timeouts, pagination, crash recovery, offline status, and per-source coverage are implemented.
+- Reset is restricted to the selected synthetic dataset and rotates its review generation. Empty responses preserve existing information; they do not imply deletion. Synthetic/live dataset separation is tested, but live ingestion remains disabled.
+- Database/process integration tests and browser checks verify durability, idempotency, re-review, failure retention, reset isolation, migration/recovery, accessibility, and loopback operation. Setup, lifecycle, limitations, and the hands-on walkthrough are in [README.md](./README.md#getting-started).
+
+**Phase 2 behavior changes from the UI prototype:** reload now preserves decisions; approval says "Saved to Orbit"; scenario selection queues real synthetic ingestion instead of switching presentation only; loading completes; empty responses retain saved data; actual processing timestamps replace simulated refresh timestamps. The fixed fictional agenda date remains visible.
+
+**Remaining work/blockers:** no implementation blocker within Phase 2. User feedback and hands-on Mac sleep/resume observation remain useful; automated tests cover elapsed-time lease renewal, not physical sleep. No Phase 3 data safeguards or account access have been approved.
+
+**Next step:** demonstrate the local organizer and stop for feedback. Start Phase 3 only on a separate request after its live-data gate is satisfied.
 
 ### Phase 3: read-only Aula integration
 

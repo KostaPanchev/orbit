@@ -2,44 +2,24 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { BRIEF_TIME, REFRESH_TIME, children, isScenario, scenarios, suggestions } from "@/demo/fixtures";
-import { useDemo } from "@/demo/provider";
-import { matchesChild } from "@/demo/state";
+import { type ReactNode } from "react";
+import { children, scenarioSchema, scenarios } from "@/domain/model";
+import { useOrganizer } from "./organizer-provider";
+import { formatSourceTime, matchesChild, syncStatus } from "@/domain/presentation";
 import { Icon } from "./icon";
 
 const navigation = [
   { href: "/", label: "Today", icon: "today" },
   { href: "/upcoming", label: "Upcoming", icon: "upcoming" },
   { href: "/review", label: "Review", icon: "review" },
-  { href: "/settings", label: "Demo settings", icon: "settings" },
+  { href: "/settings", label: "Local settings", icon: "settings" },
 ] as const;
 
 export function Shell({ children: content }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { state, dispatch } = useDemo();
-  const [refreshing, setRefreshing] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
-  const count = ["empty", "loading"].includes(state.scenario) ? 0 : suggestions.filter((item) => !state.decisions[item.id] && (!item.busyOnly || state.scenario === "busy") && matchesChild(item, state.child)).length;
-  const scenario = scenarios[state.scenario];
-
-  function simulateRefresh() {
-    if (timer.current) clearTimeout(timer.current);
-    setRefreshing(true);
-    dispatch({ type: "announce", message: "Simulating refresh. No connection to Aula or AI." });
-    timer.current = setTimeout(() => {
-      setRefreshing(false);
-      dispatch({ type: "announce", message: `Demo refresh simulation finished. ${scenario.title}. Timestamps are fixed fictional values; no service was contacted.` });
-      timer.current = null;
-    }, 900);
-  }
-
-  function cancelRefresh() {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    setRefreshing(false);
-  }
+  const { state, busy, error, mutate, setChild } = useOrganizer();
+  const count = state.suggestions.filter((item) => !state.decisions[item.id] && matchesChild(item, state.child)).length;
+  const status = syncStatus(state);
 
   return (
     <div className="app-shell">
@@ -53,36 +33,34 @@ export function Shell({ children: content }: { children: ReactNode }) {
         <div className="sidebar-footer"><span className="household-mark" aria-hidden="true">E + A</span><strong>The demo household</strong><p>Two children. One calm overview.</p><span className="pill">Fictional data only</span></div>
       </aside>
       <div className="workspace">
-        <header className="topbar"><span className="eyebrow">Your family&apos;s orbit</span><span className="demo-tag">Interactive prototype · Demo</span></header>
+        <header className="topbar"><span className="eyebrow">Your family&apos;s orbit</span><span className="demo-tag">Local organizer · Synthetic data</span></header>
         <div className="demo-toolbar" aria-label="Demo controls">
           <div><span className="demo-date">Mon, 2 November 2026</span><span className="muted">Fixed demo date · Copenhagen time</span></div>
           <div className="toolbar-actions">
             <label htmlFor="scenario">Demo scenario</label>
-            <select id="scenario" value={state.scenario} onChange={(event) => {
-              const value = event.target.value;
-              if (!isScenario(value)) throw new Error(`Unknown demo scenario: ${value}`);
-              cancelRefresh();
-              dispatch({ type: "scenario", scenario: value });
+            <select id="scenario" value={state.scenario} disabled={busy || Boolean(state.job)} onChange={(event) => {
+              void mutate({ type: "scenario", scenario: scenarioSchema.parse(event.target.value) });
             }}>{Object.entries(scenarios).map(([id, option]) => <option value={id} key={id}>{option.label}</option>)}</select>
-            <button className="button secondary" onClick={simulateRefresh} disabled={refreshing || state.scenario === "loading"}><Icon name="refresh" />{refreshing ? "Simulating..." : "Simulate refresh"}</button>
+            <button className="button secondary" onClick={() => void mutate({ type: "refresh" })} disabled={busy || Boolean(state.job)}><Icon name="refresh" />{state.job ? "Refresh pending..." : "Refresh synthetic data"}</button>
           </div>
         </div>
         <div className="page-content">
-          <div className={`connection-note ${scenario.tone === "warning" ? "warning" : ""}`}>
+          <div className={`connection-note ${status.warning ? "warning" : ""}`} role="status" aria-live="polite">
             <span className="status-marker" aria-hidden="true" />
-            <div><strong>{scenario.title}</strong><p>{scenario.detail}</p></div>
+            <div><strong>{status.title}</strong><p>{status.detail}</p></div>
             <Link href="/settings" className="text-link">Coverage details<Icon name="arrow" /></Link>
           </div>
+          {error && <p className="notice warning" role="alert">{error}</p>}
           <fieldset className="child-filters">
             <legend>Show information for</legend>
-            {(["all", "emma", "alex"] as const).map((child) => <label key={child} className={state.child === child ? "filter selected" : "filter"}><input type="radio" name="child-filter" value={child} checked={state.child === child} onChange={() => dispatch({ type: "filter", child })} />{child === "all" ? "Both children" : children[child].name}</label>)}
+            {(["all", "emma", "alex"] as const).map((child) => <label key={child} className={state.child === child ? "filter selected" : "filter"}><input type="radio" name="child-filter" value={child} checked={state.child === child} onChange={() => setChild(child)} />{child === "all" ? "Both children" : children[child].name}</label>)}
           </fieldset>
           <main id="main" tabIndex={-1}>{content}</main>
           <footer className="page-footer">
-            <p><strong>Demo only.</strong> Changes reset on reload. No external calendar is connected.</p>
-            <div className="refresh-metadata"><span>Last successful demo refresh: {REFRESH_TIME}</span><span>Prewritten brief as of: {BRIEF_TIME}</span></div>
+            <p><strong>Synthetic data only.</strong> Decisions are saved locally across reloads and restarts. No external calendar is connected.</p>
+            <div className="refresh-metadata"><span>Last successful synthetic refresh: {state.lastSuccess ? formatSourceTime(state.lastSuccess) : "Not yet completed"}</span><span>Prewritten brief as of: {state.briefAt ? formatSourceTime(state.briefAt) : "Not yet generated"}</span></div>
             <p>Orbit supplements Aula. Attachments, weekly plans, and sensitive content are not covered.</p>
-            <button className="text-link" onClick={() => { cancelRefresh(); dispatch({ type: "reset" }); }}>Reset demo</button>
+            <button className="text-link" disabled={busy || Boolean(state.job)} onClick={() => void mutate({ type: "reset" })}>Reset synthetic dataset</button>
           </footer>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { children, type ChildId } from "@/demo/fixtures";
+import { children, type ChildId } from "@/domain/model";
 
 export function ChildLabel({ child, institution = false }: { child: ChildId; institution?: boolean }) {
   const info = children[child];

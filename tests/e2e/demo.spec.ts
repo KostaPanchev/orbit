@@ -1,6 +1,12 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
+test.beforeEach(async ({ request }) => {
+  const response = await request.post("/api/organizer", { headers: { Origin: "http://127.0.0.1:3100" }, data: { type: "reset" } });
+  expect(response.ok()).toBe(true);
+  await expect.poll(async () => (await (await request.get("/api/organizer")).json()).job).toBeNull();
+});
+
 async function tabTo(page: Page, target: Locator) {
   for (let attempt = 0; attempt < 80; attempt++) {
     if (await target.evaluate((element) => element === document.activeElement)) return;
@@ -23,7 +29,7 @@ test("primary review workflow works with the keyboard alone", async ({ page }) =
   await tabTo(page, page.getByLabel("Title", { exact: true }));
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.type("Keyboard trip");
-  await tabTo(page, page.getByRole("button", { name: "Approve & add to demo" }));
+  await tabTo(page, page.getByRole("button", { name: "Approve & save to Orbit" }));
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Waiting for you 2" })).toBeFocused();
   await tabTo(page, page.getByRole("article", { name: "Lantern walk", exact: true }).getByRole("button", { name: "Dismiss" }));
@@ -35,14 +41,14 @@ test("primary review workflow works with the keyboard alone", async ({ page }) =
   await expect(page.getByRole("article", { name: "Lantern walk + raincoats", exact: true })).toContainText("Thu, 12 November");
 });
 
-test("approvals, edits and dismissals survive navigation, but not a reload", async ({ page }) => {
+test("approvals, edits and dismissals survive navigation and a reload", async ({ page }) => {
   await page.goto("/review");
   await page.getByRole("article", { name: "Trip permission deadline", exact: true }).getByRole("button", { name: "Approve", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Waiting for you 3" })).toBeFocused();
   await page.getByRole("article", { name: "Visit to the nature centre", exact: true }).getByRole("button", { name: "Edit & approve" }).click();
   await page.getByLabel("Title", { exact: true }).fill("Nature trip - bring lunch");
   await expect(page.getByLabel("Time (optional)")).toHaveValue("");
-  await page.getByRole("button", { name: "Approve & add to demo" }).click();
+  await page.getByRole("button", { name: "Approve & save to Orbit" }).click();
   await page.getByRole("article", { name: "Autumn gathering", exact: true }).getByRole("button", { name: "Dismiss" }).click();
   await page.getByRole("link", { name: "Upcoming", exact: true }).click();
   await expect(page.getByRole("article", { name: "Trip permission deadline", exact: true })).toBeVisible();
@@ -50,9 +56,9 @@ test("approvals, edits and dismissals survive navigation, but not a reload", asy
   await page.getByRole("link", { name: /^Review/ }).click();
   await expect(page.getByRole("article", { name: "Autumn gathering", exact: true })).toContainText("Dismissed from review");
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Waiting for you 4" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Waiting for you 1" })).toBeVisible();
   await page.getByRole("link", { name: "Upcoming", exact: true }).click();
-  await expect(page.getByRole("article", { name: "Nature trip - bring lunch", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("article", { name: "Nature trip - bring lunch", exact: true })).toHaveCount(1);
 });
 
 test("revision approval replaces one entry and keeps the user's edited title", async ({ page }) => {
@@ -76,11 +82,11 @@ test("unresolved dates cannot be scheduled without explicit confirmation", async
   await expect(item.getByRole("button", { name: "Approve", exact: true })).toBeDisabled();
   await item.getByRole("button", { name: "Resolve & approve" }).click();
   await expect(page.getByLabel("Confirmed date")).toHaveValue("");
-  await page.getByRole("button", { name: "Approve & add to demo" }).click();
+  await page.getByRole("button", { name: "Approve & save to Orbit" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByLabel("Confirmed date").fill("2026-11-20");
   await page.getByRole("checkbox").check();
-  await page.getByRole("button", { name: "Approve & add to demo" }).click();
+  await page.getByRole("button", { name: "Approve & save to Orbit" }).click();
   await page.getByRole("link", { name: "Upcoming", exact: true }).click();
   await expect(page.getByRole("article", { name: "Autumn gathering", exact: true })).toContainText("Fri, 20 November");
 });
@@ -88,7 +94,7 @@ test("unresolved dates cannot be scheduled without explicit confirmation", async
 test("child filter persists and reset restores all original fixtures", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("radio", { name: "Alex", exact: true }).check();
-  await expect(page.getByRole("status")).toHaveText("Showing Alex.");
+  await expect(page.getByRole("status").filter({ hasText: "Showing Alex." })).toBeVisible();
   await expect(page.getByRole("heading", { name: "A quick reply before the trip" })).toHaveCount(0);
   await page.getByRole("link", { name: "Upcoming", exact: true }).click();
   await expect(page.getByRole("radio", { name: "Alex", exact: true })).toBeChecked();
@@ -96,7 +102,8 @@ test("child filter persists and reset restores all original fixtures", async ({ 
   await page.getByRole("link", { name: /^Review/ }).click();
   await page.getByRole("article", { name: "Autumn gathering", exact: true }).getByRole("button", { name: "Dismiss" }).click();
   await page.getByLabel("Demo scenario").selectOption("busy");
-  await page.getByRole("button", { name: "Reset demo" }).click();
+  await expect(page.getByLabel("Demo scenario")).toBeEnabled();
+  await page.getByRole("button", { name: "Reset synthetic dataset" }).click();
   await expect(page.getByRole("radio", { name: "Both children" })).toBeChecked();
   await expect(page.getByLabel("Demo scenario")).toHaveValue("normal");
   await expect(page.getByRole("heading", { name: "Waiting for you 4" })).toBeVisible();
@@ -121,35 +128,35 @@ test("source drawer is keyboard accessible and restores focus", async ({ page })
   await expect(trigger).toBeFocused();
 });
 
-test("all scenarios are distinct; failed checks preserve data and original timestamps", async ({ page }) => {
+test("worker scenarios disclose failures and retain data and original brief timestamp", async ({ page }) => {
   await page.goto("/");
+  const briefTime = await page.getByText(/^Prewritten brief as of:/).textContent();
   const cases = [
-    ["busy", "A little more happening today"],
-    ["empty", "No items in the checked demo sources"],
-    ["loading", "Simulating a refresh"],
+    ["empty", "Synthetic sources checked"],
+    ["loading", "Synthetic sources checked"],
     ["partial", "Some information could be missing"],
     ["stale", "This overview may be out of date"],
-    ["error", "The demo refresh did not complete"],
-    ["disconnected", "Demo connection is disconnected"],
-    ["reconnect", "Demo session needs reconnecting"],
-    ["ai-unavailable", "Demo summary processing is unavailable"],
-    ["normal", "Your demo is up to date"],
+    ["error", "Some information could be missing"],
+    ["disconnected", "Synthetic connection is disconnected"],
+    ["reconnect", "Synthetic session needs reconnecting"],
+    ["ai-unavailable", "Synthetic summary processing is unavailable"],
+    ["normal", "Synthetic sources checked"],
   ];
   for (const [scenario, title] of cases) {
     await page.getByLabel("Demo scenario").selectOption(scenario);
+    await expect(page.getByLabel("Demo scenario")).toBeEnabled({ timeout: 10_000 });
     await expect(page.getByText(title, { exact: true })).toBeVisible();
-    await expect(page.getByText("Last successful demo refresh: 2 Nov, 07:30")).toBeVisible();
-    if (scenario === "empty") await expect(page.getByRole("heading", { name: "A quieter demo day" })).toBeVisible();
-    else if (scenario === "loading") await expect(page.getByRole("region", { name: "Loading demo" })).toHaveAttribute("aria-busy", "true");
-    else await expect(page.getByRole("heading", { name: "A quick reply before the trip" })).toBeVisible();
+    await expect(page.getByText(/^Prewritten brief as of:/)).toHaveText(briefTime!);
+    await expect(page.getByRole("heading", { name: "A quick reply before the trip" })).toBeVisible();
   }
   await page.getByLabel("Demo scenario").selectOption("partial");
-  await page.getByRole("link", { name: "Demo settings" }).click();
-  await expect(page.getByText("Incomplete · previous data", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Demo scenario")).toBeEnabled();
+  await page.getByRole("link", { name: "Local settings" }).click();
+  await expect(page.getByText(/Incomplete · incomplete/)).toBeVisible();
   await expect(page.getByText("Inaccessible · not checked", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Simulate refresh" }).click();
-  await expect(page.getByRole("button", { name: "Simulating..." })).toBeDisabled();
-  await expect(page.getByRole("status")).toContainText("Demo refresh simulation finished.");
+  await page.getByRole("button", { name: "Refresh synthetic data" }).click();
+  await expect(page.getByRole("button", { name: "Refresh pending..." })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Refresh synthetic data" })).toBeEnabled();
   await expect(page.getByLabel("Demo scenario")).toHaveValue("partial");
 });
 
@@ -180,12 +187,12 @@ test("320px reflow and 200% zoom retain the primary workflows", async ({ page })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole("article", { name: "Visit to the nature centre", exact: true }).getByRole("button", { name: "Edit & approve" }).click();
   await page.getByLabel("Title", { exact: true }).fill("Zoom-tested trip");
-  await page.getByRole("button", { name: "Approve & add to demo" }).click();
+  await page.getByRole("button", { name: "Approve & save to Orbit" }).click();
   await page.getByRole("link", { name: "Upcoming", exact: true }).click();
   await expect(page.getByRole("article", { name: "Zoom-tested trip", exact: true })).toBeVisible();
 });
 
-test("the browser makes no external service requests or storage writes", async ({ page }) => {
+test("the browser makes no external requests or browser-storage writes", async ({ page }) => {
   const external: string[] = [];
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -194,9 +201,21 @@ test("the browser makes no external service requests or storage writes", async (
   });
   await page.goto("/review");
   await page.getByRole("article", { name: "Trip permission deadline", exact: true }).getByRole("button", { name: "Approve", exact: true }).click();
-  await page.getByRole("button", { name: "Simulate refresh" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Demo refresh simulation finished." })).toBeVisible();
+  await page.getByRole("button", { name: "Refresh synthetic data" }).click();
+  await expect(page.getByRole("button", { name: "Refresh synthetic data" })).toBeEnabled();
   expect(external).toEqual([]);
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length, cookies: document.cookie }))).toEqual({ local: 0, session: 0, cookies: "" });
+});
+
+test("mutations reject cross-origin requests and invalid dates", async ({ request }) => {
+  const crossOrigin = await request.post("/api/organizer", { headers: { Origin: "https://example.invalid" }, data: { type: "reset" } });
+  expect(crossOrigin.status()).toBe(403);
+  const missingOrigin = await request.post("/api/organizer", { data: { type: "reset" } });
+  expect(missingOrigin.status()).toBe(403);
+  const invalid = await request.post("/api/organizer", {
+    headers: { Origin: "http://127.0.0.1:3100" },
+    data: { type: "approve", id: "fake", revision: "fake", details: { title: "Test", date: "2026-02-30", time: "25:00", location: "" } },
+  });
+  expect(invalid.status()).toBe(400);
 });

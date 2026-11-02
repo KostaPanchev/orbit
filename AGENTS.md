@@ -32,27 +32,30 @@ Read the relevant sections of [plan.md](./plan.md) before implementation. The pl
 
 Google/Apple calendar connections, exports, subscriptions, and external calendar writes are deferred. So are weekly-plan providers, attachments/OCR, notifications, chores, and multi-household support unless separately requested.
 
-## Phase 1: UI-only contract
+## Current phase: persistent synthetic organizer
 
-The Phase 1 implementation is complete and awaiting UX feedback. Do not interpret that status as permission to begin Phase 2.
+Phases 1 and 2 are implemented and verified. Await local-organizer feedback; do not begin Phase 3 without a separate request and approved live-data safeguards.
 
 - Use Next.js App Router, TypeScript, pnpm, and Tailwind CSS. Build custom, minimal Material-inspired components, not the Material UI library.
-- Use typed fictional fixtures and a small shared in-memory state store. No database, ORM, localStorage persistence, data API routes, domain backend, worker, AI SDK, or external data requests.
+- Use only fictional data through the synthetic adapter and persistent domain workflows. No Aula connector, real AI, browser storage, or external calendar is enabled.
 - Use a fixed, visibly labeled demo date. The upcoming view covers 30 days relative to that date.
-- Implement Today, Upcoming, Review, source details, child filters, and demo settings. Approve, edit-and-approve, and dismiss must update the demo agenda.
-- Preserve demo decisions during in-app navigation; reset them on a full page reload or explicit reset.
-- Provide reproducible normal, empty, loading, partial, stale, and error scenarios. Label simulated refresh and connection states as demos, not real service activity.
+- Preserve approvals, edits, and dismissals across reloads and restarts. Only explicit synthetic reset clears them; child filters remain UI state during navigation.
+- Scenario changes enqueue real synthetic worker jobs. Do not hide saved data for empty or failed responses, or present simulated failures as live connection activity.
 - Use prewritten English summaries and fictional Danish source excerpts. Do not claim that a real model produced the fixtures.
-- Label approvals "Added to demo agenda" and explain reset behavior. Do not imply that anything was saved to an external calendar.
+- Label approvals "Saved to Orbit" and keep the no-external-calendar disclosure.
 
-### Current frontend structure
+### Current architecture and checks
 
 - `src/app/` owns the four routes and responsive design tokens/styles; Tailwind runs through `postcss.config.mjs`.
-- `src/demo/fixtures.ts` defines fictional source evidence, suggestions, scenarios, and the fixed date/window. Keep all timestamps and excerpts consistent with that clock.
-- `src/demo/provider.tsx` mounts once in the root layout; `src/demo/state.ts` holds reducer transitions and shared selectors/formatters. Keep state above route changes and do not add browser persistence.
+- `src/demo/fixtures.ts` supplies fictional evidence to server-side synthetic ingestion only. Do not import fixture content into client components. `src/domain/model.ts` defines Zod schemas, public DTOs, scenarios, and the fixed date/window.
+- `src/components/organizer-provider.tsx` mounts in the root layout, reads snapshots, and posts mutations to `src/app/api/organizer/route.ts`. Browser polling reads status only; it must never trigger ingestion.
+- `src/domain/presentation.ts` owns shared selectors/formatters. Server-only SQLite access is under `src/server/db/`; services and the worker share the same validated workflows.
+- SQLite uses `better-sqlite3` with Drizzle migrations. Generate schema changes with `pnpm db:generate`; apply them during worker/setup startup, never in page renders or API handlers. Use immediate native SQLite transactions for atomic multi-statement workflows.
+- The synthetic adapter and deterministic summarizer are in `src/server/sources/synthetic.ts`; sync/review services are in `src/server/services/`. Candidate revisions include source content and dataset generation; do not bypass stale-revision or reset checks.
+- `src/worker/local.ts` launches the worker and Next.js together on loopback. `pnpm dev` and `pnpm start` already include the worker; do not launch a second against the same database. Manual and scheduled work share durable jobs and a fenced lease.
 - `src/components/` contains the shell, views, native dialog, source inspection, and shared presentation. Source dates use explicit timezone formatting; composed date parts avoid Node/browser locale punctuation mismatches during hydration.
-- Revision approval replaces the linked entry rather than appending another; keep the seeded edited title unless explicitly changed in the editor. Unresolved dates require user confirmation and must not be approved automatically.
-- Build before browser tests: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, then `pnpm test:e2e`. The browser suite owns port 3100; install Chromium with `pnpm exec playwright install chromium` if missing.
+- Revision approval replaces the linked entry rather than appending another; retain all previously edited fields unless explicitly changed. Unresolved dates require separate confirmation and must not be approved automatically.
+- Build before browser tests: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, then `pnpm test:e2e`. Browser tests run serially against isolated `.orbit/e2e.sqlite` storage on port 3100; restart tests also use temporary databases/ephemeral ports. Never point tests at the user's database.
 - Use Node.js 24 and the pinned pnpm version. `pnpm dev` and `pnpm start` bind to loopback with telemetry disabled. See [README.md](./README.md#verification) for verification scope and limitations.
 
 ## Product and accessibility
@@ -66,8 +69,8 @@ The Phase 1 implementation is complete and awaiting UX feedback. Do not interpre
 
 ## Persistence and event integrity, from Phase 2
 
-- Introduce SQLite with Drizzle migrations and Zod validation for the local application. Keep database access, connectors, and secrets server-side.
-- Reuse domain workflows for synthetic and live sources once those workflows exist. Keep synthetic and live datasets isolated, including reset operations.
+- Keep SQLite/Drizzle access, connectors, and secrets server-side; validate inputs and processing outputs with Zod.
+- Reuse domain workflows for future authorized live sources. Keep synthetic and live datasets isolated, including reset operations; current startup rejects live datasets.
 - Use stable source IDs, source revisions, and uniqueness constraints for idempotent imports. Do not deduplicate unrelated events by title alone.
 - Persist approval, dismissal, and user edits across refreshes and restarts. Changed source information must request re-review rather than silently overwrite an approved event.
 - Label persistent approvals "Saved to Orbit" and state that no external calendar is connected.
@@ -94,10 +97,10 @@ The Phase 1 implementation is complete and awaiting UX feedback. Do not interpre
 
 - Use the requested phase's [acceptance criteria](./plan.md#acceptance-and-verification), not later-phase requirements, to determine completion.
 - Inspect the repository's actual scripts before running commands. Do not claim that proposed tools or commands already exist.
-- Frontend validation uses Vitest, Testing Library, and Playwright with axe accessibility checks. Add database and connector tests only when those capabilities are introduced.
+- Validation uses Vitest, Testing Library, SQLite/process integration tests, and Playwright with axe accessibility checks. Add real connector/AI tests only when those phases are authorized.
 - For code changes, run the relevant tests, lint, type-check, and production build using the configured scripts. Supplement automation with browser, keyboard, zoom, and responsive checks where applicable.
-- Phase 1 must verify navigation-state preservation, reset behavior, source inspection, review actions, filtering, and reproducible demo states without credentials or external data services.
-- Later phases must also verify persistence, idempotency, source changes, pagination, partial failures, expired sessions, and grounded extraction as applicable.
+- Phase 2 checks must preserve reload/restart durability, idempotency, stale-revision rejection, user edits, reset isolation, worker recovery, source evidence, and explicit failure/coverage states.
+- Later phases must additionally verify real account pagination, expired sessions, access controls, and grounded AI extraction as applicable.
 - Update directly related documentation. Report the scope completed, checks performed, limitations, and outstanding decisions. Do not present untested live integrations or future phases as complete.
 
 <!-- BEGIN:nextjs-agent-rules -->
