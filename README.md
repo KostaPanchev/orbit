@@ -65,7 +65,9 @@ The prototype is mobile-first, with restrained color, clear typography, and low 
 
 Architecture will be added only when needed. From Phase 2, the Next.js application and a separate worker will share SQLite and application services. Synthetic and live datasets will remain separate, while using the same normalization, persistence, and review workflows.
 
-Scheduled refresh will run every 30 minutes while the worker is running, with manual refresh using the same workflow. A sleeping laptop cannot refresh; unattended operation requires the later deployment phase.
+**Selected hosting: the existing Mac.** The app, future SQLite database, and future worker will run locally without a hosting subscription. Keep access on loopback; remote access has not been approved.
+
+From Phase 2, scheduled refresh will run every 30 minutes while Orbit's local process and worker are running and the Mac is awake, with manual refresh using the same workflow. Stopping the local process stops refresh; sleep suspends it. Closing the browser tab/window alone does not stop the worker. This downtime is acceptable; an always-on service is not required. Phase 1 still only simulates refresh.
 
 ## Aula integration
 
@@ -120,7 +122,7 @@ pnpm start
 
 The consent fixture is only a reminder: approving it does not reply in Aula. No external calendar is connected. A user-entered date outside the 30-day window is retained in memory but is not shown in Upcoming; the approval announcement explains this.
 
-Phase 1 is ready for UX feedback. Phase 2 requires a separate request; no storage, provider, or deployment decision has been made. See [plan.md](./plan.md) for phase gates and [AGENTS.md](./AGENTS.md) for contributor guidance.
+Phase 1 is ready for UX feedback. Mac-local hosting and its process-bound refresh lifecycle are confirmed; Phase 2 still requires a separate request. Live-data safeguards, the AI provider/processing location, and remote deployment remain unapproved. See [plan.md](./plan.md) for phase gates and [AGENTS.md](./AGENTS.md) for contributor guidance.
 
 ## Verification
 
@@ -153,4 +155,4 @@ See the [acceptance criteria](./plan.md#acceptance-and-verification) for the exa
 
 Google/Apple calendar connections, exports, subscriptions, and external writes; notifications, email, and push delivery; weekly-plan providers; attachments and OCR; chores and task assignment; shopping and meal planning; multi-household support; general conversational agents; and a public multi-user service.
 
-External calendar integration is a potential later phase requiring a separate provider and scope decision. Production hosting and the AI provider remain undecided.
+External calendar integration is a potential later phase requiring a separate provider and scope decision. Current hosting is Mac-local; any later remote/production deployment and the AI provider remain undecided.

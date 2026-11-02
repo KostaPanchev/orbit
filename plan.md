@@ -36,7 +36,9 @@ Phase 1 must not require a database, backend integration, background worker, Aul
 - In Phase 1, approval changes only the in-memory demo agenda. From Phase 2, approval saves an item persistently inside Orbit. Google Calendar, Apple Calendar, calendar export/subscription, and external calendar writes are deferred.
 - Phase 1 simulates refresh. From Phase 2, refresh every 30 minutes while the local worker is running, with a manual refresh option. Update the daily brief when relevant information changes once AI is enabled.
 - Show the next 30 days by default.
-- Production hosting and AI provider remain undecided. Do not select or enable a cloud service implicitly.
+- Current hosting choice: run Orbit on the user's existing Mac, with the application, future SQLite database, and future worker on that machine. This avoids a hosting subscription; always-on availability is not required.
+- From Phase 2, refresh runs only while Orbit's local process and worker are running and the Mac is awake. Stopping the local process stops refresh; sleep suspends refresh. Closing a browser tab/window alone does not stop the local process or worker.
+- This local-hosting choice supersedes the earlier fully undecided hosting status. Remote access and any later production deployment remain unapproved; keep loopback-only access for now. The AI provider and processing location remain undecided. No cloud service or later phase is authorized by this decision.
 
 ## Recommended product experience
 
@@ -207,7 +209,7 @@ The prototype uses fictional families and school content only. Bind local servic
 
 Before live persistent ingestion in Phase 3, confirm:
 
-- Where the app, database, and worker run, and whether access is local-only or remote.
+- Reconfirm the selected Mac-local, loopback-only arrangement for the app, database, and worker before live ingestion; separately approve any remote access or change of host.
 - Authentication/access control for remote use, including authorization on every server-side read and mutation, secure sessions, transport security, and mutation protections.
 - A minimum necessary data-retention policy for originals, excerpts, summaries, decisions, logs, and backups; explicit disconnect and deletion behavior.
 - Host/storage encryption, protected connector tokens, secrets management, and backup/restore procedures. SQLite alone does not encrypt stored content.
@@ -216,7 +218,7 @@ Before Phase 4, separately confirm AI processing location/provider, data handlin
 
 Keep tokens in the connector's protected store, not Orbit's client or logs. Avoid third-party analytics, content-bearing error telemetry, and logging message bodies or names. Excluded attachments and sensitive content requiring additional access remain visibly unprocessed; do not automatically escalate authentication.
 
-For a deployed daily service, an always-on worker is required. A laptop prototype cannot refresh while asleep. Hosting remains a later decision, not an implied promise of unattended availability.
+For the selected Mac-local arrangement, interrupted refresh is explicitly acceptable: there is no refresh while the local process is stopped or the Mac sleeps. Browser-tab closure does not control the worker. Continuous unattended refresh would require an awake, running host and a separately approved operational arrangement; it is not a current requirement.
 
 ## Phased implementation todos
 
@@ -284,6 +286,8 @@ Do not present synthetic summaries as summaries of live sources. Until Phase 4, 
 ### Phase 5: private deployment and operational readiness
 
 **Outcome:** reliable access outside the development session using a deployment model chosen by the user.
+
+The current choice is Mac-local operation with acceptable downtime. This phase remains deferred; that choice does not authorize an always-on service or remote deployment.
 
 1. **Choosing deployment and access controls** (`deployment-gate`): confirm hosting, local-only versus remote access, access controls, and backup ownership. Depends on `live-validation`; blocked until these decisions are supplied.
 2. **Deploying and verifying private operation** (`private-deployment`): configure deployment, enforce access controls, supervise the worker, protect secrets/storage, and test backup/restore, restart recovery, disconnect, retention, and deletion. Depends on `deployment-gate`.

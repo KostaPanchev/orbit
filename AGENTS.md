@@ -72,6 +72,7 @@ The Phase 1 implementation is complete and awaiting UX feedback. Do not interpre
 - Persist approval, dismissal, and user edits across refreshes and restarts. Changed source information must request re-review rather than silently overwrite an approved event.
 - Label persistent approvals "Saved to Orbit" and state that no external calendar is connected.
 - Run manual and scheduled refresh through the same worker workflow. Poll every 30 minutes while running; never schedule ingestion in page renders or browser tabs.
+- The selected host is the user's existing Mac, with loopback-only access. Refresh stops when Orbit's local process/worker stops and pauses during Mac sleep; browser-tab closure must not stop it. Always-on operation is not required. Remote access, cloud hosting, and AI processing remain separate approval gates.
 - Track successful coverage, stale data, and partial failures. A missing item in a partial response is not evidence of deletion.
 
 ## Aula, AI, and family-data safeguards
