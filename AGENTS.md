@@ -6,6 +6,15 @@ Orbit is a single-household dashboard that reduces the mental load of following 
 
 Read the relevant sections of [plan.md](./plan.md) before implementation. The plan defines product scope, phase dependencies, decision gates, and acceptance criteria. These instructions summarize agent-critical rules; do not substitute them for the requested phase's requirements.
 
+## Keep the plan and instructions current
+
+- Treat [plan.md](./plan.md) and this file as living project documents. Review both before work and update affected sections as part of the same task whenever implementation progress, decisions, or working practices change.
+- In the plan, record completed work, remaining work, blockers, and the next step within the authorized phase. Distinguish implemented-and-verified behavior from planned or unverified behavior; mark a phase complete only when its acceptance criteria are satisfied.
+- Record new confirmed decisions and their rationale in the plan, including changes to scope, architecture, dependencies, behavior, privacy, or deployment. Keep unresolved proposals explicitly open, and identify which earlier decisions have been superseded.
+- In this file, maintain the actionable guidance future agents need: current architecture, phase boundaries, conventions, verified development/test commands, and reusable lessons. Replace outdated guidance rather than accumulating contradictory rules or a session-by-session changelog.
+- Keep shared facts consistent across both documents, linking to detailed plan sections instead of duplicating them. Do not make cosmetic updates to an unaffected document just to touch both files.
+- Documentation updates do not authorize scope expansion, clear decision gates, or start the next phase. Report document changes and any outstanding decisions in the handoff.
+
 ## Work one phase at a time
 
 - Implement only the phase or task explicitly requested by the user. Creating documentation or instructions does not authorize application implementation.
