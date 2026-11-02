@@ -79,11 +79,23 @@ export function fictionalScheduleSnapshot(): Snapshot {
     event("last-day", "Fictional final-window event", "2026-12-01"),
     event("approved", "Fictional approved suggestion", "2026-11-03", { origin: "Approved suggestion" }),
   );
+  state.schoolPlan = state.agenda.filter((entry) => entry.origin === "Structured calendar").map((entry) => ({
+    ...entry, id: `easyiq-${entry.id}`,
+    source: { ...entry.source, id: `easyiq-${entry.source.id}`, kind: "Weekly plan", author: "EasyIQ SkolePortal" },
+  }));
   return state;
 }
 export function fictionalLessonSnapshot(): Snapshot {
   const state = fictionalLiveSnapshot();
-  state.schoolPlan = normalizeSchoolWeek(fictionalSchoolWeek(), liveProfile, 10, "2026-11-02").schoolWeek!.entries;
+  const week = fictionalSchoolWeek();
+  week.events[0].end = "2026/11/03 09:30";
+  state.schoolPlan = normalizeSchoolWeek(week, liveProfile, 10, "2026-11-02").schoolWeek!.entries;
+  const calendar = state.agenda[0];
+  state.agenda = [
+    { ...calendar, title: "Fictional abbreviated lesson", endTime: "08:45" },
+    { ...calendar, id: `${calendar.id}-second-slot`, title: "Fictional abbreviated lesson", time: "08:45", endTime: "09:30" },
+    { ...calendar, id: `${calendar.id}-calendar-only`, title: "Fictional calendar-only event", time: "11:00", endTime: "11:45" },
+  ];
   return state;
 }
 export const RETENTION_END = LIVE_NOW + LIVE_RETENTION_MS;

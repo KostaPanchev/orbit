@@ -57,15 +57,49 @@ describe("separated overview, upcoming and school schedule", () => {
 });
 
 describe("weekly schedule", () => {
-  it("displays lesson notes and safe resource links instead of a duplicate title-only calendar card", () => {
+  it("shows only the full EasyIQ lesson instead of abbreviated adjacent Aula slots and calendar-only events", () => {
     renderView(SchoolScheduleView, fictionalLessonSnapshot());
     const card = screen.getByRole("article", { name: "Fictional calendar visit" });
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    expect(card).toHaveTextContent("08:00 – 09:30");
     expect(card).toHaveTextContent("Læs kapitel 2.");
     expect(card).toHaveTextContent("Fictional class");
+    expect(card).not.toHaveTextContent("Fictional hall");
+    expect(screen.queryByText("Structured Aula calendar")).not.toBeInTheDocument();
     const link = within(card).getByRole("link", { name: /Fictional lesson resource/ });
     expect(link).toHaveAttribute("href", "https://example.invalid/lesson");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(screen.getAllByRole("article", { name: "Fictional calendar visit" })).toHaveLength(1);
+  });
+  it("keeps overlapping and adjacent EasyIQ lessons separate instead of guessing that they are the same class", () => {
+    const state = fictionalLessonSnapshot();
+    const lesson = state.schoolPlan[0];
+    state.schoolPlan.push(
+      { ...lesson, id: "another-class", title: "Another class", time: "08:30", endTime: "09:30", notes: "Different assignment." },
+      { ...lesson, id: "next-lesson", time: "09:30", endTime: "10:15", notes: "Next assignment." },
+    );
+    renderView(SchoolScheduleView, state);
+    expect(screen.getAllByRole("article")).toHaveLength(3);
+    expect(screen.getByRole("article", { name: "Another class" })).toHaveTextContent("08:30 – 09:30");
+    const sameSubject = screen.getAllByRole("article", { name: "Fictional calendar visit" });
+    expect(sameSubject[0]).toHaveTextContent("08:00 – 09:30");
+    expect(sameSubject[1]).toHaveTextContent("09:30 – 10:15");
+    expect(sameSubject[1]).toHaveTextContent("Next assignment.");
+  });
+  it.each([true, false])("does not fall back to Aula when EasyIQ is empty (coverage complete: %s)", (complete) => {
+    const state = fictionalLessonSnapshot();
+    state.schoolPlan = [];
+    state.coverage = state.coverage.map((item) => item.kind === "Weekly plan" ? { ...item, complete, error: complete ? null : "unavailable" } : item);
+    renderView(SchoolScheduleView, state);
+    expect(screen.queryAllByRole("article")).toHaveLength(0);
+    expect(screen.getAllByText("No imported events for this selection", { exact: true })).toHaveLength(5);
+    expect(Boolean(screen.queryByText(/EasyIQ lesson coverage is incomplete/))).toBe(!complete);
+  });
+  it("keeps the demo's structured fixtures available without live EasyIQ data", () => {
+    renderView(SchoolScheduleView, demoSnapshot());
+    expect(screen.getByRole("article", { name: "Music afternoon" })).toBeVisible();
+    expect(screen.getByRole("article", { name: "Kindergarten photo day" })).toBeVisible();
+    expect(screen.queryByRole("article", { name: "Lantern walk + raincoats" })).not.toBeInTheDocument();
   });
   it("shows chronological structured cards, accurate times, weekend events and unique multi-day IDs", () => {
     renderView(SchoolScheduleView);
@@ -108,13 +142,14 @@ describe("weekly schedule", () => {
     expect(screen.getByRole("heading", { name: /Mon, 9 November 2026/ })).toBeVisible();
     expect(screen.getByRole("article", { name: "Fictional next-week class" })).toBeVisible();
   });
-  it("distinguishes initial loading from empty days and preserves saved events during failure", () => {
-    const state = { ...fictionalLiveSnapshot(), agenda: [], job: "running" as const };
+  it("shows EasyIQ loading even when Aula calendar events are already saved", () => {
+    const state = { ...fictionalLiveSnapshot(), job: "running" as const };
     renderView(SchoolScheduleView, state);
-    expect(screen.getByRole("status")).toHaveTextContent("Loading imported calendar events");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading EasyIQ SkolePortal classes");
+    expect(screen.queryAllByRole("article")).toHaveLength(0);
     expect(screen.queryByText("No imported events for this selection")).not.toBeInTheDocument();
   });
-  it("keeps failure coverage copy and retained calendar cards visible", () => {
+  it("keeps failure coverage copy and retained EasyIQ cards visible", () => {
     renderView(SchoolScheduleView, { ...fictionalScheduleSnapshot(), syncError: "incomplete", job: "running" });
     expect(screen.getByRole("article", { name: "Fictional calendar visit" })).toBeVisible();
     expect(screen.getByText(/not that excluded or unchecked sources are clear/)).toBeVisible();

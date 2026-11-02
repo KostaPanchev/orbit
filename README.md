@@ -32,7 +32,7 @@ Preserve the current worktree; inspect Git status rather than assuming it is com
 
 - **Overview:** the former Today page, with unchanged original posts, message previews, and horizon cards. Real child labels and a household label identify audiences; at most 100 recent source previews are listed.
 - **Upcoming:** an empty state reserved for future AI-generated suggestions after review. AI is not enabled; an empty view is not an all-clear for Aula.
-- **School schedule:** Aula calendar facts plus EasyIQ SkolePortal class labels, original lesson notes, and safe resource links across the next 30 Copenhagen dates. Weekday columns stack on narrow screens; weekend events are preserved. Dates outside the window are explicitly unavailable. No dates, missing notes, or subject colors are inferred.
+- **School schedule:** only EasyIQ SkolePortal classes, with the provider's original time ranges, class labels, lesson notes, and safe resource links across the next 30 Copenhagen dates. Aula calendar slots are not mixed into this view; they remain available in Overview. Weekday columns stack on narrow screens; weekend classes are preserved. Dates outside the window are explicitly unavailable. No dates, missing notes, or subject colors are inferred.
 - **Review:** explains that AI suggestions are not enabled; demo suggestions never appear in live mode.
 - **Source details:** original text, timestamps, attachment warnings, and a link to the Aula portal. The portal link is not a verified source-specific deep link.
 - **Local settings:** per-source coverage, excluded categories, disconnect, and explicit live-data deletion.
@@ -124,11 +124,13 @@ The protected worker reads one child/week at a time for weeks intersecting the 3
 
 Each successful child/week replaces one local source snapshot, including explicitly empty weeks. A failed or malformed response retains the previous snapshot and makes coverage incomplete. Weekly snapshots share the existing 90-day expiry and live-data deletion controls; no database migration is needed. Overview remains based on the original sources/calendar, and live Upcoming stays empty.
 
-School schedule shows the lesson text, class label, source evidence, and resource links. A unique exact child/date/start/end/title match replaces a title-only Aula card for display while preserving its location; ambiguous or unmatched entries remain separate. This does not delete or merge persisted calendar records.
+Live School schedule reads only the EasyIQ lesson snapshot, not Aula calendar entries. EasyIQ's combined lesson time ranges are displayed unchanged; Orbit does not combine distinct adjacent or overlapping lessons. An empty, loading, or unavailable EasyIQ response never falls back to Aula calendar slots. Calendar imports, persisted records, Overview, and the synthetic demo remain unchanged.
 
 Provider HTML is parsed offline with `parse5` into plain text and approved HTTP(S) links. Scripts, frames, images, unsafe schemes, and authentication/session links are excluded. Links open only on user action with no referrer; attachments are not downloaded. Provider access or school licensing may differ by child; missing coverage is not an all-clear.
 
 The current integration passed 125 application tests, 185 offline companion tests, lint, type-check, a production build, and all 40 desktop/mobile browser tests (`pnpm test:e2e --timeout 60000`). A guarded live provider check confirmed lesson text and resource links using counts-only output; one child's provider request remained unavailable. The loopback preview was restarted, provider records were persisted, and the rendered current-week notes were checked for exact equality with the imported text without printing or capturing that text. Phase 3's broader acceptance and Phase 4 remain separate.
+
+The subsequent EasyIQ-only display correction passed 40 focused tests, lint, type-check, an isolated production build, and the 38 affected desktop/mobile browser checks (one timed-out mobile journey passed on targeted rerun). No live reads, storage changes, or live-service restarts were needed for this correction; an already-running production preview must be rebuilt and restarted to show the new display.
 
 See the [integration research and feasibility checklist](./plan.md#aula-integration-research-and-recommendation) for alternatives and detailed requirements.
 See [Phase 3 status](./plan.md#phase-3-read-only-aula-integration) for pinned source evidence, approved safeguards, and the next decision.

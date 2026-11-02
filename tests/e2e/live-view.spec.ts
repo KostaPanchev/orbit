@@ -108,7 +108,7 @@ test("school schedule week controls and source inspection work by keyboard witho
   await page.keyboard.press("Tab");
   await expect(source).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog")).toContainText("Original Aula source");
+  await expect(page.getByRole("dialog")).toContainText("Original EasyIQ SkolePortal source");
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
   await page.keyboard.press("Escape");
   await expect(source).toBeFocused();
@@ -125,7 +125,7 @@ test("school schedule supports long content, 320px reflow, 200 percent zoom and 
   const state = fictionalScheduleSnapshot();
   const longName = `Fictional${"LongAudienceName".repeat(20)}`;
   state.household["aula-10"].name = longName;
-  state.agenda[0].title = `Fictional${"LongCalendarTitle".repeat(15)}`;
+  state.schoolPlan[0].title = `Fictional${"LongLessonTitle".repeat(15)}`;
   await page.route("**/api/organizer", (route) => route.fulfill({ json: state }));
   await page.getByRole("link", { name: "School schedule", exact: true }).click();
   await expect(page.getByRole("radio", { name: longName, exact: true })).toBeVisible();
@@ -140,7 +140,7 @@ test("school schedule supports long content, 320px reflow, 200 percent zoom and 
   await expect(page.getByRole("article", { name: "Fictional next-week class" })).toBeVisible();
   await page.getByRole("button", { name: "This week" }).click();
   await page.evaluate(() => { document.documentElement.style.zoom = ""; });
-  state.agenda = [];
+  state.schoolPlan = [];
   await expect(page.getByRole("article")).toHaveCount(0);
   await expect(page.getByText("No imported events for this selection", { exact: true })).toHaveCount(5);
   expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
@@ -151,7 +151,7 @@ test("rejects untrusted hosts on page and API reads", async ({ request }) => {
   expect((await request.get("/", { headers: { host: "attacker.invalid" } })).status()).not.toBe(200);
 });
 
-test("EasyIQ lesson content and resource links are readable, accessible and do not load external content", async ({ page }) => {
+test("only EasyIQ classes appear with complete time ranges, content and accessible resources", async ({ page }) => {
   const external: string[] = [];
   page.on("request", (request) => { if (!request.url().startsWith("http://127.0.0.1:3100/")) external.push(request.url()); });
   const state = fictionalLessonSnapshot();
@@ -159,6 +159,9 @@ test("EasyIQ lesson content and resource links are readable, accessible and do n
   await page.getByRole("link", { name: "School schedule", exact: true }).click();
   const card = page.getByRole("article", { name: "Fictional calendar visit", exact: true });
   await expect(card).toHaveCount(1);
+  await expect(page.getByRole("article")).toHaveCount(1);
+  await expect(card).toContainText("08:00 – 09:30");
+  await expect(page.getByText("Structured Aula calendar", { exact: true })).toHaveCount(0);
   await expect(card).toContainText("Læs kapitel 2.");
   await expect(card).toContainText("Medbring en bog.");
   await expect(card).toContainText("Fictional class");
@@ -175,5 +178,11 @@ test("EasyIQ lesson content and resource links are readable, accessible and do n
   state.coverage = state.coverage.map((item) => item.kind === "Weekly plan" ? { ...item, complete: false, error: "unavailable" } : item);
   await expect(page.getByText(/EasyIQ lesson coverage is incomplete/)).toBeVisible();
   await expect(card).toContainText("Læs kapitel 2.");
+  state.schoolPlan = [];
+  await expect(page.getByRole("article")).toHaveCount(0);
+  await expect(page.getByText(/EasyIQ lesson coverage is incomplete/)).toBeVisible();
+  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  await expect(page.getByRole("article", { name: "Fictional abbreviated lesson", exact: true })).toHaveCount(2);
+  await expect(page.getByRole("article", { name: "Fictional calendar-only event", exact: true })).toBeVisible();
   expect(external).toEqual([]);
 });

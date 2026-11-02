@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { type AgendaEntry, type EventDetails, type Candidate } from "@/domain/model";
 import { addDays, startOfWeek } from "@/domain/dates";
 import { useOrganizer } from "./organizer-provider";
-import { eventInWindow, formatDate, formatSourceTime, matchesChild, scheduleWeek, schoolScheduleEntries, suggestionDetails } from "@/domain/presentation";
+import { eventInWindow, formatDate, formatSourceTime, matchesChild, scheduleWeek, suggestionDetails } from "@/domain/presentation";
 import { ChildLabel } from "./child-label";
 import { Dialog } from "./dialog";
 import { Icon } from "./icon";
@@ -159,12 +159,13 @@ export function SchoolScheduleView() {
   const [selectedWeek, setSelectedWeek] = useState(currentWeek);
   const week = selectedWeek < currentWeek ? currentWeek : selectedWeek > lastWeek ? lastWeek : selectedWeek;
   const weekEnd = addDays(week, 6);
-  const lessons = state.schoolPlan.filter((entry) => matchesChild(entry, state.child));
-  const days = scheduleWeek(schoolScheduleEntries(agenda, lessons), week, state.today, state.windowEnd);
+  const live = state.mode === "live";
+  const entries = live ? state.schoolPlan.filter((entry) => matchesChild(entry, state.child)) : agenda;
+  const days = scheduleWeek(entries, week, state.today, state.windowEnd);
   const weekend = days.slice(5);
-  const loading = !state.schoolPlan.length && !state.agenda.some((entry) => entry.origin === "Structured calendar") && Boolean(state.job);
+  const loading = (live ? !state.schoolPlan.length : !state.agenda.some((entry) => entry.origin === "Structured calendar")) && Boolean(state.job);
   return <>
-    <PageHeading eyebrow="The school week, at a glance" title="School schedule" description={state.mode === "live" ? "Lesson content and resources from EasyIQ SkolePortal, alongside Aula calendar events. Original text is preserved; no AI is used." : "School and kindergarten calendar fixtures, grouped by day. No live provider or AI is used."} />
+    <PageHeading eyebrow="The school week, at a glance" title="School schedule" description={live ? "Only EasyIQ SkolePortal classes, with their original time ranges, lesson content, and resources. Aula calendar events remain in Overview. No AI is used." : "School and kindergarten calendar fixtures, grouped by day. No live provider or AI is used."} />
     {state.mode === "live" && !state.coverage.find((item) => item.kind === "Weekly plan")?.complete && <p className="notice warning schedule-coverage" role="status">EasyIQ lesson coverage is incomplete or has not been checked. Saved lesson content remains visible; missing notes do not mean nothing was assigned. See Local settings for coverage.</p>}
     <section className="panel schedule-panel" aria-labelledby="schedule-week-heading">
       <div className="panel-heading">
@@ -176,7 +177,7 @@ export function SchoolScheduleView() {
         </div>
       </div>
       <p className="panel-description">Available dates: {formatDate(state.today)} – {formatDate(addDays(state.windowEnd, -1))}. Empty days mean no imported events for this selection, not that excluded or unchecked sources are clear. See coverage for missing, stale, or incomplete data.</p>
-      {loading ? <p className="schedule-loading" role="status" aria-busy="true">Loading imported calendar events. No AI processing is enabled.</p> : <>
+      {loading ? <p className="schedule-loading" role="status" aria-busy="true">{live ? "Loading EasyIQ SkolePortal classes." : "Loading imported calendar events."} No AI processing is enabled.</p> : <>
         <div className="schedule-grid">{days.slice(0, 5).map((day) => <SchoolDay key={day.date} day={day} />)}</div>
         {weekend.some((day) => day.entries.length > 0) && <section className="schedule-weekend" aria-labelledby="weekend-heading"><h2 id="weekend-heading">Weekend</h2><div className="schedule-grid weekend-grid">{weekend.map((day) => <SchoolDay key={day.date} day={day} />)}</div></section>}
       </>}

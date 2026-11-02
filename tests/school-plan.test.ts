@@ -4,8 +4,7 @@ import { isoWeek } from "@/domain/dates";
 import { lessonContent } from "@/server/aula/lesson-content";
 import { normalizeSchoolWeek, SchoolPlanSource, schoolDateTime } from "@/server/aula/school-plan";
 import { AulaReadError, type AulaReader } from "@/server/aula/read-client";
-import { schoolScheduleEntries } from "@/domain/presentation";
-import { fictionalSchoolWeek, liveProfile, fictionalScheduleSnapshot } from "./live-fixtures";
+import { fictionalSchoolWeek, liveProfile } from "./live-fixtures";
 
 const signal = () => new AbortController().signal;
 describe("EasyIQ lesson content", () => {
@@ -50,17 +49,6 @@ describe("EasyIQ lesson content", () => {
     expect(normalizeSchoolWeek(response, liveProfile, 10, "2026-03-23").schoolWeek!.entries[0].source.timestamp).toBe("2026-03-29T01:30:00.000Z");
     response.events[0].start = "2026-10-25T02:30:00";
     expect(() => normalizeSchoolWeek(response, liveProfile, 10, "2026-10-19")).toThrow();
-  });
-  it("replaces only unique exact calendar slot matches in presentation, never title-only matches", () => {
-    const calendar = fictionalScheduleSnapshot().agenda;
-    const lessons = normalizeSchoolWeek(fictionalSchoolWeek(), liveProfile, 10, "2026-11-02").schoolWeek!.entries;
-    const combined = schoolScheduleEntries(calendar, lessons);
-    expect(combined.filter((entry) => entry.title === "Fictional calendar visit")).toHaveLength(1);
-    expect(combined.find((entry) => entry.title === "Fictional calendar visit")?.location).toBe("Fictional hall");
-    expect(calendar).toHaveLength(10);
-    expect(schoolScheduleEntries([...calendar, calendar[0]], lessons)).toHaveLength(calendar.length + 2);
-    expect(schoolScheduleEntries(calendar, [{ ...lessons[0], time: "09:00" }])).toHaveLength(calendar.length + 1);
-    expect(schoolScheduleEntries(calendar, [{ ...lessons[0], child: "aula-20" }])).toHaveLength(calendar.length + 1);
   });
 });
 

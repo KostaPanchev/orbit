@@ -407,7 +407,7 @@ The user's open Aula widget was identified as EasyIQ SkolePortal (0128), a separ
 - Added the bounded read allowlist entry for `aula.ugeplan.easyiq_skoleportal`. The companion uses its existing protected widget authentication, verifies the returned child identity, and returns only the selected event fields. It rejects malformed/oversized results rather than substituting an empty success and sanitizes provider failures. A verified numeric login-ID response is supported without exposing login IDs or raw auth responses.
 - Added child/week source snapshots, per-source coverage, Copenhagen date/time validation, and offline HTML-to-text/resource-link extraction. Complete weeks replace one source record atomically; failed or invalid weeks retain old content. Snapshots share 90-day retention and live deletion. No migration or AI processor is introduced.
 - Weekly provider requests cover intersecting weeks; presentation remains limited to the exact 30-date window. Calendar and lesson reads precede posts/messages so a slow message scan does not starve the schedule.
-- School schedule displays original lesson text, class labels, resource links, and source evidence. Only unique exact child/date/start/end/title matches replace calendar cards for display, preserving their location. Persisted Aula events are untouched; ambiguous matches remain separate. Overview and Upcoming retain their existing content boundaries.
+- School schedule displays original EasyIQ lesson text, class labels, resource links, and source evidence. The later EasyIQ-only correction below supersedes the initial exact-match combination with Aula calendar slots. Overview and Upcoming retain their existing content boundaries.
 - `parse5` is a production dependency for offline HTML parsing. No upstream HTML, script, frame, image, authentication link, or attachment is rendered/fetched. Resource links require user action, open separately, and do not send a referrer.
 
 **Verification:** 125 application tests, 185 companion tests, lint/type-check/build, and 40 desktop/mobile browser tests passed. Later ordering/link-policy changes also passed focused tests and a rebuild. Browser evidence is fictional and covers content, provenance, resource links, no external loads, retained failed-week content, keyboard focus, axe, and narrow reflow.
@@ -415,6 +415,16 @@ The user's open Aula widget was identified as EasyIQ SkolePortal (0128), a separ
 An authorized, protected current-week read confirmed lesson text/resource links using counts-only output. One child's provider request failed; do not infer a licence state or turn that failure into an empty successful result. The loopback live preview was rebuilt/restarted on port 3001 and an authorized refresh persisted the provider snapshots. A local render check compared every rendered current-week note against imported text and confirmed exact equality, printing only counts and the boolean result; no source content or browser screenshot was retained.
 
 The current full automated run also covers the source/store edits marked unverified in the historical handoff. This does not certify full live coverage, remote revocation/reconnect, or physical sleep/resume. Provider coverage remains explicitly incomplete for the failed child, retained Aula data is preserved, and all AI outputs remain empty. Phase 3's comprehensive acceptance remains pending; Phase 4 is still unstarted.
+
+### EasyIQ-only School schedule correction
+
+The user confirmed that this view should contain only EasyIQ classes. The duplicated-looking rows were a mixture of short Aula calendar slots and longer EasyIQ lessons, not a reason to infer new lesson groupings.
+
+- Live School schedule now selects only `Snapshot.schoolPlan`; removed the cross-source matching/combination helper. EasyIQ's already-combined time ranges, notes, class labels, resources, and source evidence are preserved.
+- No Aula fallback is shown when EasyIQ is empty, loading, or unavailable. Existing coverage warnings remain explicit. Child/week filters, weekend classes, and independently supplied adjacent or overlapping EasyIQ lessons remain intact.
+- Aula calendar ingestion, storage, and Overview are unchanged. The synthetic demo still shows its structured calendar fixtures.
+- Verified with 40 focused component/domain/provider tests, lint, type-check, an isolated production build, and the 38 affected desktop/mobile browser checks. One mobile journey timed out in the initial run and passed unchanged on a targeted desktop/mobile rerun. Checks include mismatched abbreviated 45-minute Aula slots versus a 90-minute EasyIQ lesson, no calendar fallback, preserved Overview/demo behavior, keyboard focus, axe, 320px reflow, and 200% zoom.
+- Build/browser validation used a separate copy with fictional storage to avoid disturbing the existing production preview. No live reads, persistent data changes, or live-service restart was performed; the running preview needs a rebuild/restart to display this correction.
 
 ### Phase 4: source-grounded AI briefs and suggestions
 

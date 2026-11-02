@@ -11,22 +11,6 @@ export function eventInWindow(entry: AgendaEntry, start = DEMO_DATE, end = WINDO
 export function matchesChild(item: { child: string }, child: ChildFilter): boolean {
   return child === "all" || item.child === child || item.child === "household";
 }
-export function schoolScheduleEntries(calendar: AgendaEntry[], lessons: AgendaEntry[]) {
-  const key = (entry: AgendaEntry) => JSON.stringify([entry.child, entry.date, entry.time, entry.endDate ?? entry.date, entry.endTime ?? "", entry.title.trim().toLocaleLowerCase("da")]);
-  const counts = (entries: AgendaEntry[]) => {
-    const result = new Map<string, number>();
-    for (const entry of entries) result.set(key(entry), (result.get(key(entry)) ?? 0) + 1);
-    return result;
-  };
-  const structured = calendar.filter((entry) => entry.origin === "Structured calendar" && entry.source.kind === "Calendar");
-  const calendarCounts = counts(structured);
-  const lessonCounts = counts(lessons);
-  const matched = (entry: AgendaEntry) => Boolean(entry.time) && calendarCounts.get(key(entry)) === 1 && lessonCounts.get(key(entry)) === 1;
-  return [
-    ...calendar.filter((entry) => entry.origin !== "Structured calendar" || entry.source.kind !== "Calendar" || !matched(entry)),
-    ...lessons.map((entry) => matched(entry) ? { ...entry, location: structured.find((item) => key(item) === key(entry))!.location } : entry),
-  ];
-}
 export function scheduleWeek(agenda: AgendaEntry[], weekStart: string, windowStart: string, windowEnd: string) {
   const entries = agenda.filter((entry) => entry.origin === "Structured calendar").toSorted((a, b) =>
     (a.allDay ? "" : a.time).localeCompare(b.allDay ? "" : b.time) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
